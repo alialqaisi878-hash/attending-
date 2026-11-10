@@ -8,11 +8,13 @@
 <link rel="icon" href="icon.svg">
 </head>
 <body>
-<header><h1>لوحة المدير</h1><span><a href="index.html">صفحة الموظف</a> &nbsp; <a href="#" id="logout" class="hidden">خروج</a></span></header>
+<header><h1 id="panelTitle">لوحة المدير</h1><span><a href="index.html">صفحة الموظف</a> &nbsp; <a href="#" id="logout" class="hidden">خروج</a></span></header>
 <main>
   <div class="card narrow" id="loginBox">
-    <label for="pass">كلمة مرور المدير</label>
-    <input id="pass" type="password">
+    <label for="user">اسم المستخدم <span class="muted">(المدير يتركه فارغ)</span></label>
+    <input id="user" dir="ltr" autocapitalize="off" autocomplete="username">
+    <label for="pass">كلمة المرور</label>
+    <input id="pass" type="password" dir="ltr" autocomplete="current-password">
     <button style="width:100%;margin-top:14px" id="loginBtn">دخول</button>
     <div class="msg" id="loginMsg"></div>
   </div>
@@ -124,6 +126,13 @@
         <label>تذكير قبل بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRB">
         <label>تذكير ثاني إذا ما بصم بعد بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRL">
         <label>تذكير الانصراف بعد نهاية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRO">
+        <h3>حساب المحاسب</h3>
+        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، وما يگدر يغيّر الإجازات أو الغياب أو الموظفين أو الإعدادات.</p>
+        <div class="row">
+          <div><label>اسم المستخدم (اتركه فارغ حتى توقف الحساب)</label><input id="sAccUser" dir="ltr" autocapitalize="off" autocomplete="off"></div>
+          <div><label>باسورد المحاسب <span class="muted" id="sAccHint"></span></label><input id="sAccPass" type="password" dir="ltr" autocomplete="new-password"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sAccAdjust" style="width:auto"> المحاسب يگدر يكتب المكافآت والسلف</label>
         <button style="width:100%;margin-top:14px" id="sSave">حفظ الإعدادات</button>
         <div class="msg" id="sMsg"></div>
       </div>
@@ -180,7 +189,7 @@ const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربع�
 function logout() { store.del('admin_token'); $('app').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logout').classList.add('hidden'); }
 $('logout').onclick = async (e) => { e.preventDefault(); try { await api('/api/logout', { method: 'POST' }); } catch (x) {} logout(); };
 $('loginBtn').onclick = async () => {
-  try { const d = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: $('pass').value }) });
+  try { const d = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username: $('user').value, password: $('pass').value }) }); $('pass').value = '';
     store.set('admin_token', d.token); start(); } catch (e) { msg('loginMsg', e.message, false); }
 };
 $('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
@@ -328,6 +337,7 @@ async function loadPayroll() {
     try { await api('/api/admin/adjustments', { method: 'PUT', body: JSON.stringify({ employee_id: id, month: $('pMonth').value, bonus: val('bonus'), advance: val('advance') }) }); loadPayroll(); }
     catch (e) { alert(e.message); }
   });
+  if (!canAdjust) document.querySelectorAll('.adj').forEach((i) => { i.disabled = true; i.title = 'يكتبها المدير بس'; });
   const s0 = rows[0]?.summary;
   if (s0) $('payRule').textContent = `اليومية = الراتب ÷ ${s0.month_days}. راتب الحضور = (أيام الحضور + الإجازة المدفوعة) × اليومية. التأخير: سماحية ${s0.late_allowance} دقيقة بالشهر، والزايد بسعر ${money(s0.late_hour_rate)} للساعة. الإضافي بسعر ${money(s0.overtime_hour_rate)} للساعة. المكافآت والسلف تكتبها بالجدول وتنحفظ وحدها.`;
   const line = (l, v, b) => `<div class="kv"><span>${l}</span><b ${b ? 'class="net"' : ''}>${money(v)}</b></div>`;
@@ -370,6 +380,8 @@ async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
   $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sDeviceLock').checked = settings.device_lock === '1';
+  $('sAccUser').value = settings.accountant_user || ''; $('sAccPass').value = ''; $('sAccAdjust').checked = settings.accountant_adjust === '1';
+  $('sAccHint').textContent = settings.accountant_has_password ? '(اتركه فارغ إذا ما تريد تغيّره)' : '';
   $('sRB').value = settings.remind_before; $('sRL').value = settings.remind_late; $('sRO').value = settings.remind_out_after;
   const wd = settings.weekend_days.split(',');
   document.querySelectorAll('.wd').forEach((c) => c.checked = wd.includes(c.value));
@@ -388,7 +400,7 @@ $('sSave').onclick = async () => {
   try {
     await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
-      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, device_lock: $('sDeviceLock').checked, weekend_days,
+      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings();
   } catch (e) { msg('sMsg', e.message, false); }
@@ -420,7 +432,13 @@ window.delShift = async (id) => {
   try { await api('/api/admin/shifts/' + id, { method: 'DELETE' }); loadShifts(); } catch (e) { msg('shMsg', e.message, false); }
 };
 
-function start() {
+let role = 'admin', canAdjust = true;
+async function start() {
+  try { const w = await api('/api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { return; }
+  const acc = role === 'accountant';
+  $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';
+  ['employees', 'leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
+  if (acc) document.querySelector('.tabs [data-tab=payroll]').click();
   $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
   $('rTo').value = today; $('rFrom').value = today.slice(0, 8) + '01'; $('lFrom').value = $('lTo').value = today;

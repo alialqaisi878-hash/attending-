@@ -59,7 +59,7 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,            -- admin | employee
+    kind TEXT NOT NULL,            -- admin | accountant | employee
     employee_id INTEGER,
     expires INTEGER NOT NULL
   );
@@ -105,7 +105,10 @@ const DEFAULT_SETTINGS = {
   location_lat: '',
   location_lng: '',
   location_radius: '100',   // بالمتر
-  device_lock: '1',         // كل حساب موظف ينربط بجهاز واحد، وكل جهاز لحساب واحد
+  device_lock: '1',
+  accountant_user: '',      // حساب المحاسب: يشوف الرواتب ويطبعها بس
+  accountant_hash: '',
+  accountant_adjust: '1',   // المحاسب يگدر يكتب المكافآت والسلف         // كل حساب موظف ينربط بجهاز واحد، وكل جهاز لحساب واحد
   month_days: '26',         // اليومية = الراتب الشهري / هذا الرقم
   remind_before: '10',      // تنبيه قبل بداية الدوام بكم دقيقة
   remind_late: '15',        // تنبيه ثاني إذا ما بصم بعد بداية الدوام بكم دقيقة
@@ -301,7 +304,8 @@ function auth(kind) {
   return (req, res, next) => {
     const token = (req.headers.authorization || '').replace('Bearer ', '');
     const s = db.prepare('SELECT * FROM sessions WHERE token = ?').get(token);
-    if (!s || s.kind !== kind || s.expires < Date.now()) return res.status(401).json({ error: 'سجّل دخول' });
+    if (!s || ![].concat(kind).includes(s.kind) || s.expires < Date.now()) return res.status(401).json({ error: 'سجّل دخول' });
+    req.role = s.kind;
     if (kind === 'employee') {
       const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND active = 1').get(s.employee_id);
       if (!emp) return res.status(401).json({ error: 'الحساب موقوف' });
@@ -416,11 +420,24 @@ app.post('/api/punch', auth('employee'), (req, res) => {
 
 // ----- المدير -----
 const admin = auth('admin');
+const staff = auth(['admin', 'accountant']); // المدير أو المحاسب (قراءة الرواتب والتقارير والطباعة)
 app.post('/api/admin/login', (req, res) => {
-  const a = Buffer.from(String(req.body.password || ''));
+  const user = String(req.body.username || '').trim();
+  const pw = String(req.body.password || '');
+  const s = getSettings();
+  if (user && user !== 'admin') {
+    if (s.accountant_user && s.accountant_hash && user === s.accountant_user && checkPassword(pw, s.accountant_hash)) {
+      return res.json({ token: newSession('accountant'), role: 'accountant' });
+    }
+    return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  }
+  const a = Buffer.from(pw);
   const b = Buffer.from(ADMIN_PASSWORD);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
-  res.json({ token: newSession('admin') });
+  res.json({ token: newSession('admin'), role: 'admin' });
+});
+app.get('/api/admin/whoami', staff, (req, res) => {
+  res.json({ role: req.role, can_adjust: req.role === 'admin' || getSettings().accountant_adjust === '1' });
 });
 
 function validateEmployee(body, isNew) {
@@ -436,7 +453,7 @@ function validateEmployee(body, isNew) {
   return null;
 }
 
-app.get('/api/admin/employees', admin, (req, res) => {
+app.get('/api/admin/employees', staff, (req, res) => {
   res.json(db.prepare('SELECT * FROM employees ORDER BY active DESC, name').all().map(publicEmp));
 });
 app.post('/api/admin/employees', admin, (req, res) => {
@@ -492,16 +509,16 @@ function report(from, to, employeeId) {
   return rows;
 }
 
-app.get('/api/admin/today', admin, (req, res) => {
+app.get('/api/admin/today', staff, (req, res) => {
   const { date } = nowParts();
   res.json({ date, rows: report(date, date) });
 });
-app.get('/api/admin/report', admin, (req, res) => {
+app.get('/api/admin/report', staff, (req, res) => {
   const { from, to, employee_id } = req.query;
   if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return res.status(400).json({ error: 'حدد فترة صحيحة' });
   res.json(report(from, to, employee_id));
 });
-app.get('/api/admin/report.csv', admin, (req, res) => {
+app.get('/api/admin/report.csv', staff, (req, res) => {
   const { from, to, employee_id } = req.query;
   if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return res.status(400).send('bad range');
   const rows = report(from, to, employee_id);
@@ -524,12 +541,12 @@ function payrollList(month) {
     'present_days', 'absent_days', 'paid_leave_days', 'late_after_allowance', 'overtime_minutes'].map((k) => [k, sum(k)]));
   return { rows, totals };
 }
-app.get('/api/admin/payroll', admin, (req, res) => {
+app.get('/api/admin/payroll', staff, (req, res) => {
   const month = req.query.month;
   if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
   res.json(payrollList(month));
 });
-app.get('/api/admin/payroll.csv', admin, (req, res) => {
+app.get('/api/admin/payroll.csv', staff, (req, res) => {
   const month = req.query.month;
   if (!MONTH_RE.test(month || '')) return res.status(400).send('bad month');
   const { rows, totals } = payrollList(month);
@@ -548,7 +565,8 @@ app.get('/api/admin/payroll.csv', admin, (req, res) => {
   res.send('\uFEFF' + [head.map(esc).join(','), ...lines].join('\n'));
 });
 // السلف والمكافآت
-app.put('/api/admin/adjustments', admin, (req, res) => {
+app.put('/api/admin/adjustments', staff, (req, res) => {
+  if (req.role !== 'admin' && getSettings().accountant_adjust !== '1') return res.status(403).json({ error: 'المكافآت والسلف يكتبها المدير بس' });
   const { employee_id, month, advance, bonus, note } = req.body;
   if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
   if (!db.prepare('SELECT id FROM employees WHERE id = ?').get(Number(employee_id))) return res.status(400).json({ error: 'الموظف غير موجود' });
@@ -565,7 +583,7 @@ const validShift = (b) => {
   if (toMin(b.end) <= toMin(b.start)) return 'نهاية الدوام لازم تكون بعد بدايته';
   return null;
 };
-app.get('/api/admin/shifts', admin, (req, res) => {
+app.get('/api/admin/shifts', staff, (req, res) => {
   res.json(db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM employees e WHERE e.shift_id = s.id AND e.active = 1) AS employees FROM shifts s ORDER BY start`).all());
 });
 app.post('/api/admin/shifts', admin, (req, res) => {
@@ -587,7 +605,7 @@ app.delete('/api/admin/shifts/:id', admin, (req, res) => {
   db.prepare('DELETE FROM shifts WHERE id = ?').run(Number(req.params.id));
   res.json({ ok: true });
 });
-app.get('/api/admin/payslip', admin, (req, res) => {
+app.get('/api/admin/payslip', staff, (req, res) => {
   const { month, employee_id } = req.query;
   if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
   const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(employee_id));
@@ -621,8 +639,10 @@ app.delete('/api/admin/leaves/:id', admin, (req, res) => {
 });
 
 // الإعدادات
-app.get('/api/admin/settings', admin, (req, res) => {
-  const s = getSettings(); delete s.vapid_private; res.json(s);
+app.get('/api/admin/settings', staff, (req, res) => {
+  const s = getSettings(); delete s.vapid_private; delete s.accountant_hash;
+  s.accountant_has_password = !!getSettings().accountant_hash;
+  res.json(s);
 });
 app.put('/api/admin/settings', admin, (req, res) => {
   const b = req.body;
@@ -654,12 +674,27 @@ app.put('/api/admin/settings', admin, (req, res) => {
     s[k] = String(Number(b[k]));
   }
   if (b.device_lock !== undefined) s.device_lock = b.device_lock ? '1' : '0';
+  if (b.accountant_adjust !== undefined) s.accountant_adjust = b.accountant_adjust ? '1' : '0';
+  let resetAccountant = false;
+  if (b.accountant_user !== undefined) {
+    const u = String(b.accountant_user).trim();
+    if (u && (!/^[A-Za-z0-9_.-]{3,30}$/.test(u) || u === 'admin')) return res.status(400).json({ error: 'اسم مستخدم المحاسب: حروف إنگليزية وأرقام، 3 حروف أو أكثر' });
+    if (u !== s.accountant_user) resetAccountant = true;
+    s.accountant_user = u;
+    if (!u) s.accountant_hash = '';
+  }
+  if (b.accountant_password) {
+    if (String(b.accountant_password).length < 6) return res.status(400).json({ error: 'باسورد المحاسب لازم 6 حروف أو أكثر' });
+    s.accountant_hash = hashPassword(String(b.accountant_password)); resetAccountant = true;
+  }
+  if (s.accountant_user && !s.accountant_hash) return res.status(400).json({ error: 'اكتب باسورد للمحاسب' });
   if (b.location_radius !== undefined) {
     if (!(Number(b.location_radius) >= 10)) return res.status(400).json({ error: 'نصف القطر لازم 10 متر أو أكثر' });
     s.location_radius = String(Number(b.location_radius));
   }
   const up = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
   for (const k of Object.keys(DEFAULT_SETTINGS)) up.run(s[k], k);
+  if (resetAccountant) db.prepare("DELETE FROM sessions WHERE kind = 'accountant'").run();
   res.json({ ok: true });
 });
 

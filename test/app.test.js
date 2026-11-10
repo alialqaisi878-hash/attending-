@@ -147,4 +147,36 @@ test('device lock: one phone per account, one account per phone', async () => {
   assert.ok((await put('/api/admin/settings', { device_lock: false }, adminToken)).ok);
 });
 
+test('accountant can read and print payroll but not change leaves, employees or settings', async () => {
+  assert.equal((await put('/api/admin/settings', { accountant_user: 'acc', accountant_password: '123' }, adminToken)).status, 400); // too short
+  assert.ok((await put('/api/admin/settings', { accountant_user: 'acc', accountant_password: 'acc12345' }, adminToken)).ok);
+  const st = await get('/api/admin/settings', adminToken);
+  assert.equal(st.accountant_hash, undefined); assert.ok(st.accountant_has_password);
+  assert.equal((await post('/api/admin/login', { username: 'acc', password: 'wrong' })).status, 401);
+  const lr = await (await post('/api/admin/login', { username: 'acc', password: 'acc12345' })).json();
+  assert.equal(lr.role, 'accountant'); const t = lr.token;
+  assert.equal((await get('/api/admin/whoami', t)).role, 'accountant');
+  const month = new Date().toISOString().slice(0, 7);
+  assert.ok((await call('GET', '/api/admin/payroll?month=' + month, null, t)).ok);
+  assert.ok((await call('GET', '/api/admin/payroll.csv?month=' + month, null, t)).ok);
+  const emp = (await get('/api/admin/employees', t))[0];
+  assert.ok((await call('GET', `/api/admin/payslip?employee_id=${emp.id}&month=${month}`, null, t)).ok);
+  assert.ok((await put('/api/admin/adjustments', { employee_id: emp.id, month, bonus: 1000, advance: 0 }, t)).ok);
+  // forbidden for the accountant
+  assert.equal((await post('/api/admin/leaves', { employee_id: emp.id, from: month + '-01', paid: 1 }, t)).status, 401);
+  assert.equal((await call('GET', '/api/admin/leaves?month=' + month, null, t)).status, 401);
+  assert.equal((await put('/api/admin/employees/' + emp.id, { salary: 1 }, t)).status, 401);
+  assert.equal((await post('/api/admin/employees', { username: 'x1', name: 'x', password: 'pass1234' }, t)).status, 401);
+  assert.equal((await put('/api/admin/settings', { accountant_adjust: true }, t)).status, 401);
+  assert.equal((await post('/api/admin/shifts', { name: 'x', start: '08:00', end: '15:00', overtime_after: '16:00' }, t)).status, 401);
+  // admin turns off bonus/advance editing for the accountant
+  assert.ok((await put('/api/admin/settings', { accountant_adjust: false }, adminToken)).ok);
+  assert.equal((await put('/api/admin/adjustments', { employee_id: emp.id, month, bonus: 2000, advance: 0 }, t)).status, 403);
+  // changing the accountant password logs them out
+  assert.ok((await put('/api/admin/settings', { accountant_password: 'new12345' }, adminToken)).ok);
+  assert.equal((await call('GET', '/api/admin/payroll?month=' + month, null, t)).status, 401);
+  // admin still logs in with an empty username
+  assert.ok((await post('/api/admin/login', { password: 'secret' })).ok);
+});
+
 test('reminder tick runs', async () => { await reminderTick(); });
