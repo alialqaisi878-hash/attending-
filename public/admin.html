@@ -170,10 +170,11 @@ document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
   loaders[b.dataset.tab]().catch((e) => alert(e.message));
 });
 
+const offTag = (off, at) => off ? ` <span class="badge b-offline" title="وصلت للسيرفر: ${esc(at)}">بصمة بدون نت · وصلت ${esc(at)}</span>` : '';
 function attendanceRows(rows, withDate) {
   return `<tr>${withDate ? '<th>التاريخ</th>' : ''}<th>الاسم</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>` +
     rows.map((r) => `<tr>${withDate ? `<td>${r.work_date}</td>` : ''}<td>${esc(r.name)}</td><td>${esc(r.department)}</td>
-      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}</td>
+      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}${offTag(r.in_offline, r.in_synced_at)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}${offTag(r.out_offline, r.out_synced_at)}</td>
       <td>${badge(r.status)}</td><td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td>
       <td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
 }

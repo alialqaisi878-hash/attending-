@@ -76,4 +76,27 @@ test('csv and auth', async () => {
   assert.equal(settings.vapid_private, undefined);
 });
 
+test('offline punch is accepted with device time and flagged', async () => {
+  await post('/api/admin/employees', { username: 'sara', name: 'سارة', password: 'pass1234' }, adminToken);
+  const { token } = await (await post('/api/login', { username: 'sara', password: 'pass1234' })).json();
+  const twoHoursAgo = Date.now() - 5 * 60 * 1000;
+  const r = await post('/api/punch', { action: 'in', offline_at: twoHoursAgo, queued: true }, token);
+  const dup = await (await post('/api/punch', { action: 'in', offline_at: twoHoursAgo, queued: true }, token)).json();
+  assert.equal(dup.duplicate, true);
+  assert.ok(r.ok, await r.text());
+  const me = await get('/api/me', token);
+  const rec = db.prepare("SELECT a.* FROM attendance a JOIN employees e ON e.id = a.employee_id WHERE e.username = 'sara'").get();
+  assert.equal(rec.in_offline, 1); assert.ok(rec.in_synced_at);
+  assert.ok(me.days.some((d) => d.in_offline));
+  // a fresh punch (sent right away) is not flagged
+  assert.ok((await post('/api/punch', { action: 'out', offline_at: Date.now() - 5000 }, token)).ok);
+  const rec2 = db.prepare('SELECT * FROM attendance WHERE id = ?').get(rec.id);
+  assert.equal(rec2.out_offline, 0);
+  // future and too-old punches are refused
+  assert.equal((await post('/api/punch', { action: 'in', offline_at: Date.now() + 3600 * 1000 }, token)).status, 400);
+  assert.equal((await post('/api/punch', { action: 'in', offline_at: Date.now() - 10 * 24 * 3600 * 1000 }, token)).status, 400);
+  const csv = await call('GET', `/api/admin/report.csv?from=${me.date}&to=${me.date}`, null, adminToken);
+  assert.match(await csv.text(), /حضور \(وصلت/);
+});
+
 test('reminder tick runs', async () => { await reminderTick(); });

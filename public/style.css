@@ -57,3 +57,4 @@ a.loc { color: var(--primary); font-size: 12px; }
 .small-btn { padding: 6px 10px; font-size: 13px; }
 dialog { border: 0; border-radius: 12px; padding: 20px; width: min(640px, 94vw); }
 dialog::backdrop { background: rgba(0,0,0,.35); }
+.b-offline { background: #fff0e0; color: #b45309; font-size: 11px; white-space: nowrap; }

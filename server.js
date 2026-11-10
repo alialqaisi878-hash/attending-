@@ -35,6 +35,8 @@ db.exec(`
     check_in TEXT, check_out TEXT,
     in_lat REAL, in_lng REAL, in_distance REAL,
     out_lat REAL, out_lng REAL, out_distance REAL,
+    in_offline INTEGER NOT NULL DEFAULT 0, in_synced_at TEXT,   -- بصمة بدون نت: وقت وصولها للسيرفر
+    out_offline INTEGER NOT NULL DEFAULT 0, out_synced_at TEXT,
     UNIQUE(employee_id, work_date)
   );
   CREATE TABLE IF NOT EXISTS leaves (
@@ -63,6 +65,14 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `);
+// ترقية قاعدة بيانات قديمة
+{
+  const cols = db.prepare('PRAGMA table_info(attendance)').all().map((c) => c.name);
+  for (const [c, def] of [['in_offline', 'INTEGER NOT NULL DEFAULT 0'], ['in_synced_at', 'TEXT'], ['out_offline', 'INTEGER NOT NULL DEFAULT 0'], ['out_synced_at', 'TEXT']]) {
+    if (!cols.includes(c)) db.exec(`ALTER TABLE attendance ADD COLUMN ${c} ${def}`);
+  }
+}
+const OFFLINE_MAX_DAYS = 7; // أقدم بصمة بدون نت مقبولة
 const DEFAULT_SETTINGS = {
   company_name: 'اسم الشركة',
   grace_minutes: '10',
@@ -97,12 +107,12 @@ function checkPassword(pw, stored) {
   const test = crypto.scryptSync(String(pw), salt, 32);
   return crypto.timingSafeEqual(test, Buffer.from(hash, 'hex'));
 }
-function nowParts() {
+function nowParts(d = new Date()) {
   const f = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   });
-  const p = Object.fromEntries(f.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}:${p.second}` };
 }
 function getSettings() {
@@ -142,6 +152,8 @@ function dayInfo(emp, date, rec, leave, s, today) {
     work_date: date, check_in: rec?.check_in || null, check_out: rec?.check_out || null,
     in_lat: rec?.in_lat ?? null, in_lng: rec?.in_lng ?? null, out_lat: rec?.out_lat ?? null, out_lng: rec?.out_lng ?? null,
     worked_minutes: null, late_minutes: 0, overtime_minutes: 0, status: '', leave_note: leave?.note || '',
+    in_offline: !!rec?.in_offline, in_synced_at: rec?.in_synced_at || null,
+    out_offline: !!rec?.out_offline, out_synced_at: rec?.out_synced_at || null,
   };
   if (r.check_in && r.check_out) r.worked_minutes = Math.max(0, toMin(r.check_out) - toMin(r.check_in));
   if (r.check_in) {
@@ -278,8 +290,19 @@ app.post('/api/me/password', auth('employee'), (req, res) => {
 });
 
 app.post('/api/punch', auth('employee'), (req, res) => {
-  const { action, lat, lng } = req.body;
+  const { action, lat, lng, offline_at, queued } = req.body;
   const emp = req.emp;
+  // بصمة محفوظة بالموبايل وقت ما كان ماكو نت: نستعمل وقت الموبايل ونعلّمها للمراجعة
+  let offline = false, when = new Date();
+  if (offline_at !== undefined && offline_at !== null) {
+    const t = new Date(Number(offline_at));
+    if (isNaN(t)) return res.status(400).json({ error: 'وقت البصمة غير صحيح' });
+    if (t.getTime() > Date.now() + 2 * 60 * 1000) return res.status(400).json({ error: 'وقت البصمة بالمستقبل، تأكد من ساعة الموبايل' });
+    if (Date.now() - t.getTime() > OFFLINE_MAX_DAYS * 24 * 3600 * 1000) return res.status(400).json({ error: `البصمة أقدم من ${OFFLINE_MAX_DAYS} أيام وما تنقبل` });
+    if (queued || Date.now() - t.getTime() > 60 * 1000) { offline = true; when = t; }
+  }
+  const synced = nowParts();
+  const syncedAt = `${synced.date} ${synced.time}`;
   const s = getSettings();
   const la = typeof lat === 'number' ? lat : null;
   const ln = typeof lng === 'number' ? lng : null;
@@ -294,19 +317,29 @@ app.post('/api/punch', auth('employee'), (req, res) => {
     }
   }
 
-  const { date, time } = nowParts();
+  const { date, time } = nowParts(when);
   const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(emp.id, date);
+  const tag = offline ? ' (بصمة بدون نت)' : '';
   if (action === 'in') {
+    if (rec && rec.check_in && queued) return res.json({ ok: true, duplicate: true, message: 'البصمة مسجّلة مسبقاً' });
     if (rec && rec.check_in) return res.status(400).json({ error: `مسجّل حضورك اليوم من الساعة ${rec.check_in.slice(0, 5)}` });
-    db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, in_lat, in_lng, in_distance) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(emp.id, date, time, la, ln, dist);
-    return res.json({ ok: true, message: `أهلاً ${emp.name}، تم تسجيل حضورك الساعة ${time.slice(0, 5)}` });
+    if (rec) {
+      db.prepare('UPDATE attendance SET check_in = ?, in_lat = ?, in_lng = ?, in_distance = ?, in_offline = ?, in_synced_at = ? WHERE id = ?')
+        .run(time, la, ln, dist, offline ? 1 : 0, offline ? syncedAt : null, rec.id);
+    } else {
+      db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, in_lat, in_lng, in_distance, in_offline, in_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(emp.id, date, time, la, ln, dist, offline ? 1 : 0, offline ? syncedAt : null);
+    }
+    return res.json({ ok: true, message: `أهلاً ${emp.name}، تم تسجيل حضورك الساعة ${time.slice(0, 5)}${tag}` });
   }
   if (action === 'out') {
     if (!rec || !rec.check_in) return res.status(400).json({ error: 'لازم تسجّل حضور أول' });
+    if (rec.check_out && queued) return res.json({ ok: true, duplicate: true, message: 'البصمة مسجّلة مسبقاً' });
     if (rec.check_out) return res.status(400).json({ error: `مسجّل انصرافك اليوم الساعة ${rec.check_out.slice(0, 5)}` });
-    db.prepare('UPDATE attendance SET check_out = ?, out_lat = ?, out_lng = ?, out_distance = ? WHERE id = ?').run(time, la, ln, dist, rec.id);
-    return res.json({ ok: true, message: `مع السلامة ${emp.name}، تم تسجيل انصرافك الساعة ${time.slice(0, 5)}` });
+    if (time < rec.check_in) return res.status(400).json({ error: 'وقت الانصراف قبل وقت الحضور' });
+    db.prepare('UPDATE attendance SET check_out = ?, out_lat = ?, out_lng = ?, out_distance = ?, out_offline = ?, out_synced_at = ? WHERE id = ?')
+      .run(time, la, ln, dist, offline ? 1 : 0, offline ? syncedAt : null, rec.id);
+    return res.json({ ok: true, message: `مع السلامة ${emp.name}، تم تسجيل انصرافك الساعة ${time.slice(0, 5)}${tag}` });
   }
   res.status(400).json({ error: 'عملية غير معروفة' });
 });
@@ -400,11 +433,12 @@ app.get('/api/admin/report.csv', admin, (req, res) => {
   const { from, to, employee_id } = req.query;
   if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return res.status(400).send('bad range');
   const rows = report(from, to, employee_id);
-  const head = ['التاريخ', 'المستخدم', 'الاسم', 'القسم', 'الحضور', 'الانصراف', 'الحالة', 'دقائق التأخير', 'ساعات العمل', 'ساعات الأوفر تايم'];
+  const head = ['التاريخ', 'المستخدم', 'الاسم', 'القسم', 'الحضور', 'الانصراف', 'الحالة', 'دقائق التأخير', 'ساعات العمل', 'ساعات الأوفر تايم', 'بصمة بدون نت'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const h = (m) => (m == null ? '' : (m / 60).toFixed(2));
   const lines = rows.map((r) => [r.work_date, r.username, r.name, r.department, r.check_in || '', r.check_out || '', r.status,
-    r.late_minutes, h(r.worked_minutes), h(r.overtime_minutes)].map(esc).join(','));
+    r.late_minutes, h(r.worked_minutes), h(r.overtime_minutes),
+    [r.in_offline ? `حضور (وصلت ${r.in_synced_at})` : '', r.out_offline ? `انصراف (وصلت ${r.out_synced_at})` : ''].filter(Boolean).join(' / ')].map(esc).join(','));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="attendance_${from}_${to}.csv"`);
   res.send('﻿' + [head.map(esc).join(','), ...lines].join('\n'));

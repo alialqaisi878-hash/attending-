@@ -37,6 +37,7 @@
         <button class="big out" id="btnOut">تسجيل انصراف</button>
       </div>
       <div class="msg" id="msg"></div>
+      <div class="msg err" id="offlineBar" style="display:none"></div>
       <p class="muted" id="todayLine" style="margin-bottom:0"></p>
       <p class="muted" id="locNote" style="margin:6px 0 0"></p>
     </div>
@@ -116,8 +117,62 @@ function tick() {
 }
 tick(); setInterval(tick, 1000);
 
+// ----- البصمة بدون نت -----
+const QKEY = 'punch_queue';
+const queue = () => { try { return JSON.parse(store.get(QKEY) || '[]'); } catch (e) { return []; } };
+const saveQueue = (q) => store.set(QKEY, JSON.stringify(q));
+let syncing = false;
+function showOfflineBar() {
+  const q = queue();
+  const bar = $('offlineBar');
+  if (!q.length && navigator.onLine) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  const list = q.map((p) => `${p.action === 'in' ? 'حضور' : 'انصراف'} ${new Date(p.at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baghdad' })}`).join('، ');
+  bar.textContent = (navigator.onLine ? '' : 'ماكو نت. ') + (q.length ? `بصمات محفوظة بالموبايل وراح ترتفع وحدها من يرجع النت: ${list}` : 'البصمة راح تنحفظ بالموبايل وترتفع من يرجع النت.');
+}
+async function syncQueue() {
+  if (syncing || !store.get('emp_token')) return;
+  syncing = true;
+  try {
+    let q = queue();
+    while (q.length) {
+      const p = q[0];
+      let r;
+      try {
+        r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token') },
+          body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true }) });
+      } catch (e) { break; } // بعده ماكو نت
+      if (r.status === 401) break; // لازم يسجل دخول، نخليها بالانتظار
+      if (r.status >= 500) break;
+      const d = await r.json().catch(() => ({}));
+      if (!d.duplicate) msg('msg', r.ok ? 'ارتفعت البصمة المحفوظة: ' + d.message : 'بصمة محفوظة ما انقبلت: ' + (d.error || ''), r.ok);
+      q = queue().filter((x) => x.id !== p.id); saveQueue(q);
+    }
+  } finally { syncing = false; showOfflineBar(); }
+  if (!queue().length) loadHome().catch(() => {});
+}
+window.addEventListener('online', () => { showOfflineBar(); syncQueue(); });
+window.addEventListener('offline', showOfflineBar);
+setInterval(syncQueue, 30000);
+
+function applyQueueToButtons(today) {
+  const q = queue();
+  const hasIn = !!today.check_in || q.some((p) => p.action === 'in');
+  const hasOut = !!today.check_out || q.some((p) => p.action === 'out');
+  $('btnIn').disabled = hasIn; $('btnOut').disabled = !hasIn || hasOut;
+}
+
 async function loadHome() {
-  const d = await api('/api/me');
+  let d;
+  try {
+    d = await api('/api/me');
+    store.set('me_cache', JSON.stringify(d));
+  } catch (e) {
+    // ماكو نت: نعرض آخر نسخة محفوظة
+    const cached = store.get('me_cache');
+    if (!cached || navigator.onLine && !/fetch|network|Failed/i.test(e.message)) throw e;
+    d = JSON.parse(cached);
+  }
   monthNow = d.month;
   $('loginBox').classList.add('hidden'); $('home').classList.remove('hidden'); $('logout').classList.remove('hidden');
   $('company').textContent = d.company_name;
@@ -126,7 +181,7 @@ async function loadHome() {
   $('empInfo').textContent = [e.job_title, e.department].filter(Boolean).join(' · ');
   const t = d.today;
   $('todayLine').textContent = `اليوم: ${t.status} · الحضور ${t5(t.check_in)} · الانصراف ${t5(t.check_out)}`;
-  $('btnIn').disabled = !!t.check_in; $('btnOut').disabled = !t.check_in || !!t.check_out;
+  applyQueueToButtons(t); showOfflineBar();
   $('locNote').textContent = d.location_required ? 'البصمة مسموحة بس داخل مكان العمل، ولازم تسمح للمتصفح يوصل لموقعك.' : '';
   $('sPresent').textContent = s.present_days; $('sLate').textContent = s.late_days; $('sAbsent').textContent = s.absent_days;
   $('sLeave').textContent = s.paid_leave_days; $('sUnpaid').textContent = s.unpaid_leave_days; $('sOT').textContent = hrs(s.overtime_minutes);
@@ -135,18 +190,29 @@ async function loadHome() {
   $('pShift').textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $('pOTAfter').textContent = t5(e.overtime_after);
   $('pOTRate').textContent = money(s.hourly_rate * e.overtime_rate);
   $('daysTable').innerHTML = '<tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>' +
-    d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}</td><td>${t5(r.check_out)}</td><td>${badge(r.status)}</td>
+    d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}${r.in_offline ? ' 📵' : ''}</td><td>${t5(r.check_out)}${r.out_offline ? ' 📵' : ''}</td><td>${badge(r.status)}</td>
       <td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
 }
 
 async function punch(action) {
   $('btnIn').disabled = $('btnOut').disabled = true;
   msg('msg', 'جاري تحديد موقعك والتسجيل...', true);
+  const at = Date.now(); // وقت الضغط على الزر
   const loc = await getLocation();
+  const queueIt = () => {
+    saveQueue([...queue(), { id: at + '-' + Math.random().toString(36).slice(2), action, at, lat: loc.lat, lng: loc.lng }]);
+    msg('msg', `ماكو نت. انحفظت بصمة ${action === 'in' ? 'الحضور' : 'الانصراف'} بالموبايل، وراح ترتفع وحدها أول ما يرجع النت.`, true);
+    showOfflineBar(); applyQueueToButtons(JSON.parse(store.get('me_cache') || '{"today":{}}').today || {});
+  };
+  if (!navigator.onLine) return queueIt();
+  let r;
   try {
-    const d = await api('/api/punch', { method: 'POST', body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng }) });
-    msg('msg', d.message, true);
-  } catch (e) { msg('msg', e.message, false); }
+    r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token') },
+      body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng, offline_at: at }) });
+  } catch (e) { return queueIt(); } // انقطع النت أثناء الإرسال
+  if (r.status === 401) { showLogin(); return; }
+  const d = await r.json().catch(() => ({}));
+  msg('msg', r.ok ? d.message : (d.error || 'خطأ'), r.ok);
   loadHome().catch(() => {});
 }
 $('btnIn').onclick = () => punch('in');
@@ -190,7 +256,7 @@ $('pushBtn').onclick = async () => {
   } catch (e) { msg('pushMsg', 'تعذر تفعيل التنبيهات: ' + e.message, false); }
 };
 
-if (store.get('emp_token')) loadHome().catch(() => {});
+if (store.get('emp_token')) loadHome().then(syncQueue).catch(() => {});
 </script>
 </body>
 </html>

@@ -76,10 +76,11 @@ const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربع�
       <h3>السجل اليومي</h3>
       <table><tr><th>التاريخ</th><th>اليوم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>
       ${d.days.map((r) => `<tr class="${r.status === 'عطلة' ? 'wk' : ''}"><td>${r.work_date.slice(5)}</td><td>${DAYS[new Date(r.work_date + 'T00:00:00Z').getUTCDay()]}</td>
-        <td>${t5(r.check_in)}</td><td>${t5(r.check_out)}</td><td>${r.status}${r.leave_note ? ' (' + esc(r.leave_note) + ')' : ''}</td>
+        <td>${t5(r.check_in)}${r.in_offline ? '*' : ''}</td><td>${t5(r.check_out)}${r.out_offline ? '*' : ''}</td><td>${r.status}${r.leave_note ? ' (' + esc(r.leave_note) + ')' : ''}</td>
         <td>${r.late_minutes ? r.late_minutes + ' د' : ''}</td><td>${r.worked_minutes != null ? hrs(r.worked_minutes) : ''}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : ''}</td></tr>`).join('')}
       </table>
 
+      ${d.days.some((r) => r.in_offline || r.out_offline) ? '<p style="font-size:11px;margin:6px 0 0">* بصمة سُجّلت بدون نت وارتفعت لاحقاً.</p>' : ''}
       <p style="font-size:12px;margin-top:14px">أقر أنا الموقّع أدناه باستلامي صافي راتبي المذكور أعلاه وصحة بيانات الحضور.</p>
       <div class="sign"><div>توقيع الموظف</div><div>المحاسب</div><div>المدير</div></div>`;
   } catch (e) { $('sheet').textContent = e.message; }
