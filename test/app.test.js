@@ -165,8 +165,10 @@ test('accountant can read and print payroll but not change leaves, employees or 
   // forbidden for the accountant
   assert.equal((await post('/api/admin/leaves', { employee_id: emp.id, from: month + '-01', paid: 1 }, t)).status, 401);
   assert.equal((await call('GET', '/api/admin/leaves?month=' + month, null, t)).status, 401);
-  assert.equal((await put('/api/admin/employees/' + emp.id, { salary: 1 }, t)).status, 401);
-  assert.equal((await post('/api/admin/employees', { username: 'x1', name: 'x', password: 'pass1234' }, t)).status, 401);
+  // the accountant may add and edit employees, but not unbind a phone
+  assert.ok((await post('/api/admin/employees', { username: 'x1', name: 'x', password: 'pass1234', salary: 500000 }, t)).ok);
+  assert.ok((await put('/api/admin/employees/' + emp.id, { salary: emp.salary }, t)).ok);
+  assert.equal((await put('/api/admin/employees/' + emp.id, { reset_device: true }, t)).status, 403);
   assert.equal((await put('/api/admin/settings', { accountant_adjust: true }, t)).status, 401);
   assert.equal((await post('/api/admin/shifts', { name: 'x', start: '08:00', end: '15:00', overtime_after: '16:00' }, t)).status, 401);
   // admin turns off bonus/advance editing for the accountant

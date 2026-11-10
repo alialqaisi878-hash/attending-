@@ -456,7 +456,7 @@ function validateEmployee(body, isNew) {
 app.get('/api/admin/employees', staff, (req, res) => {
   res.json(db.prepare('SELECT * FROM employees ORDER BY active DESC, name').all().map(publicEmp));
 });
-app.post('/api/admin/employees', admin, (req, res) => {
+app.post('/api/admin/employees', staff, (req, res) => {
   const b = req.body;
   const err = validateEmployee(b, true);
   if (err) return res.status(400).json({ error: err });
@@ -471,7 +471,7 @@ app.post('/api/admin/employees', admin, (req, res) => {
     res.status(400).json({ error: 'اسم المستخدم مستخدم مسبقاً' });
   }
 });
-app.put('/api/admin/employees/:id', admin, (req, res) => {
+app.put('/api/admin/employees/:id', staff, (req, res) => {
   const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(req.params.id));
   if (!emp) return res.status(404).json({ error: 'الموظف غير موجود' });
   const b = { ...req.body };
@@ -485,6 +485,7 @@ app.put('/api/admin/employees/:id', admin, (req, res) => {
     merged.name, merged.department ?? '', merged.job_title ?? '', Number(merged.salary), merged.shift_start, merged.shift_end,
     merged.overtime_after, merged.shift_id ?? null, b.active === undefined ? emp.active : (b.active ? 1 : 0),
     b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
+  if (b.reset_device && req.role !== 'admin') return res.status(403).json({ error: 'فك ربط الجهاز للمدير بس' });
   if (b.reset_device) db.prepare('UPDATE employees SET device_id = NULL, device_at = NULL WHERE id = ?').run(emp.id);
   if (b.active === 0 || b.active === false || b.password || b.reset_device) {
     db.prepare("DELETE FROM sessions WHERE kind = 'employee' AND employee_id = ?").run(emp.id);

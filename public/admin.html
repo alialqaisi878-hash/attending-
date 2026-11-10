@@ -127,7 +127,7 @@
         <label>تذكير ثاني إذا ما بصم بعد بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRL">
         <label>تذكير الانصراف بعد نهاية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRO">
         <h3>حساب المحاسب</h3>
-        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، وما يگدر يغيّر الإجازات أو الغياب أو الموظفين أو الإعدادات.</p>
+        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، ويضيف ويعدّل الموظفين. ما يگدر يغيّر الإجازات أو الغياب أو الإعدادات، ولا يفك ربط الجهاز.</p>
         <div class="row">
           <div><label>اسم المستخدم (اتركه فارغ حتى توقف الحساب)</label><input id="sAccUser" dir="ltr" autocapitalize="off" autocomplete="off"></div>
           <div><label>باسورد المحاسب <span class="muted" id="sAccHint"></span></label><input id="sAccPass" type="password" dir="ltr" autocomplete="new-password"></div>
@@ -232,7 +232,7 @@ async function loadEmployees() {
   $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
     employees.map((e) => `<tr><td>${esc(e.name)}</td><td dir="ltr">${esc(e.username)}</td><td>${esc(e.department)}</td><td>${money(e.salary)}</td>
       <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td>
-      <td>${e.device_bound ? '📱 مربوط <button class="secondary small-btn" onclick="resetDevice(' + e.id + ')">فك الربط</button>' : '<span class="muted">ينربط بأول دخول</span>'}</td>
+      <td>${e.device_bound ? '📱 مربوط' + (role === 'admin' ? ' <button class="secondary small-btn" onclick="resetDevice(' + e.id + ')">فك الربط</button>' : '') : '<span class="muted">ينربط بأول دخول</span>'}</td>
       <td>${e.active ? 'فعّال' : 'موقوف'}</td>
       <td><button class="secondary small-btn" onclick="editEmp(${e.id})">تعديل</button>
       <button class="secondary small-btn" onclick="toggleEmp(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('');
@@ -437,7 +437,7 @@ async function start() {
   try { const w = await api('/api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { return; }
   const acc = role === 'accountant';
   $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';
-  ['employees', 'leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
+  ['leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
   if (acc) document.querySelector('.tabs [data-tab=payroll]').click();
   $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
