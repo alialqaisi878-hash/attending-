@@ -12,9 +12,18 @@ const store = {
   del: (k) => { try { localStorage.removeItem(k); } catch (e) {} },
 };
 function msg(id, text, ok) { const m = $(id); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+// رقم ثابت لهذا الجهاز (المتصفح) حتى نربط كل موظف بتلفونه
+function deviceId() {
+  let d = store.get('device_id');
+  if (!d) {
+    d = (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''));
+    store.set('device_id', d);
+  }
+  return d;
+}
 function makeApi(tokenKey, onUnauthorized) {
   return async (url, opts = {}) => {
-    const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get(tokenKey) } });
+    const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get(tokenKey), 'X-Device-Id': deviceId() } });
     if (r.status === 401 && !url.endsWith('/login')) { onUnauthorized(); throw new Error('سجّل دخول من جديد'); }
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'خطأ');

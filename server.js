@@ -88,6 +88,8 @@ db.exec(`
   }
   const ecols = db.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
   if (!ecols.includes('shift_id')) db.exec('ALTER TABLE employees ADD COLUMN shift_id INTEGER REFERENCES shifts(id)');
+  if (!ecols.includes('device_id')) db.exec('ALTER TABLE employees ADD COLUMN device_id TEXT'); // الجهاز المربوط بالحساب
+  if (!ecols.includes('device_at')) db.exec('ALTER TABLE employees ADD COLUMN device_at TEXT');
 }
 if (!db.prepare('SELECT COUNT(*) AS c FROM shifts').get().c) {
   db.prepare("INSERT INTO shifts(name, start, end, overtime_after) VALUES ('7:00 - 3:30', '07:00', '15:30', '16:00'), ('8:00 - 3:00', '08:00', '15:00', '16:00')").run();
@@ -103,6 +105,7 @@ const DEFAULT_SETTINGS = {
   location_lat: '',
   location_lng: '',
   location_radius: '100',   // بالمتر
+  device_lock: '1',         // كل حساب موظف ينربط بجهاز واحد، وكل جهاز لحساب واحد
   month_days: '26',         // اليومية = الراتب الشهري / هذا الرقم
   remind_before: '10',      // تنبيه قبل بداية الدوام بكم دقيقة
   remind_late: '15',        // تنبيه ثاني إذا ما بصم بعد بداية الدوام بكم دقيقة
@@ -268,8 +271,24 @@ const publicEmp = (e0) => { const e = withShift(e0); return {
   shift_id: e.shift_id || null, shift_name: e.shift_name,
   id: e.id, username: e.username, name: e.name, department: e.department, job_title: e.job_title,
   salary: e.salary, shift_start: e.shift_start, shift_end: e.shift_end,
-  overtime_after: e.overtime_after, active: e.active,
+  overtime_after: e.overtime_after, active: e.active, device_bound: !!e.device_id, device_at: e.device_at || null,
 }; };
+
+// ---------- قفل الجهاز ----------
+// يرجع رسالة خطأ إذا الجهاز مو مسموح لهذا الموظف، أو يربط الجهاز إذا الحساب بعده مو مربوط
+function checkDevice(emp, deviceId) {
+  if (getSettings().device_lock !== '1') return null;
+  const dev = String(deviceId || '').trim();
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(dev)) return 'حدّث الصفحة وحاول مرة ثانية.';
+  if (emp.device_id && emp.device_id !== dev) return 'هذا الحساب مربوط بجهاز ثاني. البصمة لازم تكون من تلفونك انت. إذا غيّرت تلفونك راجع المدير.';
+  const other = db.prepare('SELECT name FROM employees WHERE device_id = ? AND id != ? AND active = 1').get(dev, emp.id);
+  if (other) return 'هذا الجهاز مسجّل لموظف ثاني. كل موظف يبصم من تلفونه بس.';
+  if (!emp.device_id) {
+    db.prepare("UPDATE employees SET device_id = ?, device_at = datetime('now') WHERE id = ?").run(dev, emp.id);
+    emp.device_id = dev;
+  }
+  return null;
+}
 
 // ---------- الجلسات ----------
 function newSession(kind, employeeId) {
@@ -308,6 +327,8 @@ app.post('/api/login', (req, res) => {
   if (!emp || !checkPassword(req.body.password || '', emp.password_hash)) {
     return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
   }
+  const devErr = checkDevice(emp, req.headers['x-device-id']);
+  if (devErr) return res.status(403).json({ error: devErr });
   res.json({ token: newSession('employee', emp.id), name: emp.name });
 });
 
@@ -339,6 +360,8 @@ app.post('/api/me/password', auth('employee'), (req, res) => {
 app.post('/api/punch', auth('employee'), (req, res) => {
   const { action, lat, lng, offline_at, queued } = req.body;
   const emp = req.emp;
+  const devErr = checkDevice(emp, req.headers['x-device-id']);
+  if (devErr) return res.status(403).json({ error: devErr, device: true });
   // بصمة محفوظة بالموبايل وقت ما كان ماكو نت: نستعمل وقت الموبايل ونعلّمها للمراجعة
   let offline = false, when = new Date();
   if (offline_at !== undefined && offline_at !== null) {
@@ -445,7 +468,8 @@ app.put('/api/admin/employees/:id', admin, (req, res) => {
     merged.name, merged.department ?? '', merged.job_title ?? '', Number(merged.salary), merged.shift_start, merged.shift_end,
     merged.overtime_after, merged.shift_id ?? null, b.active === undefined ? emp.active : (b.active ? 1 : 0),
     b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
-  if (b.active === 0 || b.active === false || b.password) {
+  if (b.reset_device) db.prepare('UPDATE employees SET device_id = NULL, device_at = NULL WHERE id = ?').run(emp.id);
+  if (b.active === 0 || b.active === false || b.password || b.reset_device) {
     db.prepare("DELETE FROM sessions WHERE kind = 'employee' AND employee_id = ?").run(emp.id);
   }
   res.json({ ok: true });
@@ -629,6 +653,7 @@ app.put('/api/admin/settings', admin, (req, res) => {
     if (!(Number(b[k]) >= 0 && Number(b[k]) <= 240)) return res.status(400).json({ error: 'وقت التنبيه غير صحيح' });
     s[k] = String(Number(b[k]));
   }
+  if (b.device_lock !== undefined) s.device_lock = b.device_lock ? '1' : '0';
   if (b.location_radius !== undefined) {
     if (!(Number(b.location_radius) >= 10)) return res.status(400).json({ error: 'نصف القطر لازم 10 متر أو أكثر' });
     s.location_radius = String(Number(b.location_radius));

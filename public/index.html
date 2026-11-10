@@ -142,7 +142,7 @@ async function syncQueue() {
       const p = q[0];
       let r;
       try {
-        r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token') },
+        r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
           body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true }) });
       } catch (e) { break; } // بعده ماكو نت
       if (r.status === 401) break; // لازم يسجل دخول، نخليها بالانتظار
@@ -213,7 +213,7 @@ async function punch(action) {
   if (!navigator.onLine) return queueIt();
   let r;
   try {
-    r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token') },
+    r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
       body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng, offline_at: at }) });
   } catch (e) { return queueIt(); } // انقطع النت أثناء الإرسال
   if (r.status === 401) { showLogin(); return; }

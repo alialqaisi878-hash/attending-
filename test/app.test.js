@@ -14,6 +14,7 @@ test.before(async () => {
   srv = app.listen(0); base = `http://localhost:${srv.address().port}`;
   assert.equal((await post('/api/admin/login', { password: 'bad' })).status, 401);
   adminToken = (await (await post('/api/admin/login', { password: 'secret' })).json()).token;
+  assert.ok((await put('/api/admin/settings', { device_lock: false }, adminToken)).ok); // other tests don't send a device id
 });
 test.after(() => srv.close());
 
@@ -115,6 +116,35 @@ test('offline punch is accepted with device time and flagged', async () => {
   assert.equal((await post('/api/punch', { action: 'in', offline_at: Date.now() - 10 * 24 * 3600 * 1000 }, token)).status, 400);
   const csv = await call('GET', `/api/admin/report.csv?from=${me.date}&to=${me.date}`, null, adminToken);
   assert.match(await csv.text(), /حضور \(وصلت/);
+});
+
+test('device lock: one phone per account, one account per phone', async () => {
+  const dev = (t, d) => ({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + (t || ''), 'X-Device-Id': d });
+  const req = (u, b, t, d, method = 'POST') => fetch(base + u, { method, headers: dev(t, d), body: JSON.stringify(b) });
+  const A = 'aaaaaaaa-1111-2222-3333-444444444444', B = 'bbbbbbbb-1111-2222-3333-444444444444';
+  assert.ok((await put('/api/admin/settings', { device_lock: true }, adminToken)).ok);
+  const r1 = await post('/api/admin/employees', { username: 'dev1', name: 'جهاز1', password: 'pass1234' }, adminToken);
+  const r2 = await post('/api/admin/employees', { username: 'dev2', name: 'جهاز2', password: 'pass1234' }, adminToken);
+  assert.ok(r1.ok && r2.ok);
+  const id1 = (await get('/api/admin/employees', adminToken)).find((e) => e.username === 'dev1').id;
+  assert.equal((await post('/api/login', { username: 'dev1', password: 'pass1234' })).status, 403); // no device id
+  const ok1 = await req('/api/login', { username: 'dev1', password: 'pass1234' }, '', A);
+  assert.ok(ok1.ok); const t1 = (await ok1.json()).token;
+  // same account from another phone -> refused
+  assert.equal((await req('/api/login', { username: 'dev1', password: 'pass1234' }, '', B)).status, 403);
+  // another account from the first phone -> refused
+  assert.equal((await req('/api/login', { username: 'dev2', password: 'pass1234' }, '', A)).status, 403);
+  // punch with the token copied to another phone -> refused
+  assert.equal((await req('/api/punch', { action: 'in' }, t1, B)).status, 403);
+  assert.ok((await req('/api/punch', { action: 'in' }, t1, A)).ok);
+  const emps = await get('/api/admin/employees', adminToken);
+  assert.ok(emps.find((e) => e.id === id1).device_bound);
+  // admin resets -> new phone can log in, old session is gone
+  assert.ok((await put('/api/admin/employees/' + id1, { reset_device: true }, adminToken)).ok);
+  assert.equal((await req('/api/punch', { action: 'out' }, t1, A)).status, 401);
+  assert.ok((await req('/api/login', { username: 'dev1', password: 'pass1234' }, '', B)).ok);
+  assert.ok((await req('/api/login', { username: 'dev2', password: 'pass1234' }, '', A)).ok);
+  assert.ok((await put('/api/admin/settings', { device_lock: false }, adminToken)).ok);
 });
 
 test('reminder tick runs', async () => { await reminderTick(); });

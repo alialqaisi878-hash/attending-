@@ -105,6 +105,8 @@
         </div>
         <label>المسافة المسموحة حول المكان (متر)</label><input type="number" min="10" id="sRadius">
         <p class="muted" id="locView"></p>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sDeviceLock" style="width:auto"> كل موظف يبصم من تلفونه بس (قفل الجهاز)</label>
+        <p class="muted" style="margin-top:4px">الحساب ينربط بأول تلفون يدخل منه، وتلفون واحد ما يبصم لحسابين. إذا موظف غيّر تلفونه، فك الربط من صفحة الموظفين.</p>
         <h3>عام</h3>
         <label>اسم الشركة (يطلع بفورمة الراتب)</label><input id="sCompany">
         <h3>الرواتب</h3>
@@ -213,9 +215,11 @@ async function loadEmployees() {
       employees.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
     if (v) sel.value = v;
   });
-  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الحالة</th><th></th></tr>' +
+  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
     employees.map((e) => `<tr><td>${esc(e.name)}</td><td dir="ltr">${esc(e.username)}</td><td>${esc(e.department)}</td><td>${money(e.salary)}</td>
-      <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td><td>${e.active ? 'فعّال' : 'موقوف'}</td>
+      <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td>
+      <td>${e.device_bound ? '📱 مربوط <button class="secondary small-btn" onclick="resetDevice(' + e.id + ')">فك الربط</button>' : '<span class="muted">ينربط بأول دخول</span>'}</td>
+      <td>${e.active ? 'فعّال' : 'موقوف'}</td>
       <td><button class="secondary small-btn" onclick="editEmp(${e.id})">تعديل</button>
       <button class="secondary small-btn" onclick="toggleEmp(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('');
 }
@@ -245,6 +249,11 @@ $('fSave').onclick = async () => {
     else await api('/api/admin/employees', { method: 'POST', body: JSON.stringify({ ...body, username: $('fUser').value }) });
     $('empDlg').close(); loadEmployees();
   } catch (e) { msg('fMsg', e.message, false); }
+};
+window.resetDevice = async (id) => {
+  const e = employees.find((x) => x.id === id);
+  if (!confirm(`تفك ربط تلفون ${e.name}؟ أول تلفون يسجل منه بعدين راح ينربط بحسابه.`)) return;
+  await api('/api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ reset_device: true }) }); loadEmployees();
 };
 window.toggleEmp = async (id, active) => { await api('/api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ active }) }); loadEmployees(); };
 
@@ -329,7 +338,7 @@ function showLoc() {
 async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
-  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days;
+  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sDeviceLock').checked = settings.device_lock === '1';
   $('sRB').value = settings.remind_before; $('sRL').value = settings.remind_late; $('sRO').value = settings.remind_out_after;
   const wd = settings.weekend_days.split(',');
   document.querySelectorAll('.wd').forEach((c) => c.checked = wd.includes(c.value));
@@ -348,7 +357,7 @@ $('sSave').onclick = async () => {
   try {
     await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
-      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, weekend_days,
+      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, device_lock: $('sDeviceLock').checked, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings();
   } catch (e) { msg('sMsg', e.message, false); }
