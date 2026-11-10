@@ -45,3 +45,15 @@ th { color: var(--muted); font-weight: 600; background: #fafbfd; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); font-size: 13px; }
 a.loc { color: var(--primary); font-size: 12px; }
+.b-إجازة { background: #e8efff; color: var(--primary); }
+.b-عطلة, .b-لم { background: #eef0f4; color: var(--muted); }
+.b-دوام { background: #f0e8ff; color: #6b3fc4; }
+.hello { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hello h2 { margin: 0; font-size: 20px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.kv { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.kv b { font-weight: 700; }
+.net { font-size: 22px; color: var(--green); }
+.small-btn { padding: 6px 10px; font-size: 13px; }
+dialog { border: 0; border-radius: 12px; padding: 20px; width: min(640px, 94vw); }
+dialog::backdrop { background: rgba(0,0,0,.35); }

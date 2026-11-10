@@ -3,6 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
+const webpush = require('web-push');
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.APP_TZ || 'Asia/Baghdad';
@@ -14,10 +15,16 @@ db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS employees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     department TEXT DEFAULT '',
-    pin_hash TEXT NOT NULL,
+    job_title TEXT DEFAULT '',
+    password_hash TEXT NOT NULL,
+    salary REAL NOT NULL DEFAULT 0,          -- الراتب الشهري
+    shift_start TEXT NOT NULL DEFAULT '08:00',
+    shift_end TEXT NOT NULL DEFAULT '16:00',
+    overtime_after TEXT NOT NULL DEFAULT '16:00', -- الساعة الي يبدي بيها الأوفر تايم
+    overtime_rate REAL NOT NULL DEFAULT 1.5,       -- مضاعف أجر ساعة الأوفر تايم
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -25,30 +32,71 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     employee_id INTEGER NOT NULL REFERENCES employees(id),
     work_date TEXT NOT NULL,
-    check_in TEXT,
-    check_out TEXT,
-    in_lat REAL, in_lng REAL,
-    out_lat REAL, out_lng REAL,
+    check_in TEXT, check_out TEXT,
+    in_lat REAL, in_lng REAL, in_distance REAL,
+    out_lat REAL, out_lng REAL, out_distance REAL,
     UNIQUE(employee_id, work_date)
+  );
+  CREATE TABLE IF NOT EXISTS leaves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    leave_date TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    paid INTEGER NOT NULL DEFAULT 1,   -- 1 مدفوعة، 0 بقطع راتب
+    UNIQUE(employee_id, leave_date)
+  );
+  CREATE TABLE IF NOT EXISTS push_subs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    endpoint TEXT UNIQUE NOT NULL,
+    data TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS notif_log (
+    employee_id INTEGER NOT NULL, work_date TEXT NOT NULL, kind TEXT NOT NULL,
+    PRIMARY KEY (employee_id, work_date, kind)
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,            -- admin | employee
+    employee_id INTEGER,
+    expires INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `);
-const defaults = { work_start: '08:00', work_end: '16:00', grace_minutes: '10' };
-for (const [k, v] of Object.entries(defaults)) {
+const DEFAULT_SETTINGS = {
+  company_name: 'اسم الشركة',
+  grace_minutes: '10',
+  weekend_days: '5',        // أيام العطلة الأسبوعية: 0=الأحد ... 5=الجمعة 6=السبت
+  location_lat: '',
+  location_lng: '',
+  location_radius: '100',   // بالمتر
+  month_days: '30',         // الراتب اليومي = الراتب الشهري / هذا الرقم
+  remind_before: '10',      // تنبيه قبل بداية الدوام بكم دقيقة
+  remind_late: '15',        // تنبيه ثاني إذا ما بصم بعد بداية الدوام بكم دقيقة
+  remind_out_after: '10',   // تنبيه الانصراف بعد نهاية الدوام بكم دقيقة
+};
+for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)').run(k, v);
 }
+// مفاتيح الإشعارات (تتولد مرة وحدة وتنحفظ)
+if (!db.prepare("SELECT value FROM settings WHERE key = 'vapid_public'").get()) {
+  const k = webpush.generateVAPIDKeys();
+  db.prepare("INSERT INTO settings(key, value) VALUES ('vapid_public', ?), ('vapid_private', ?)").run(k.publicKey, k.privateKey);
+}
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || db.prepare("SELECT value FROM settings WHERE key = 'vapid_public'").get().value;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || db.prepare("SELECT value FROM settings WHERE key = 'vapid_private'").get().value;
+webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', VAPID_PUBLIC, VAPID_PRIVATE);
 
 // ---------- أدوات ----------
-function hashPin(pin) {
+function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
-  return salt + ':' + crypto.scryptSync(String(pin), salt, 32).toString('hex');
+  return salt + ':' + crypto.scryptSync(String(pw), salt, 32).toString('hex');
 }
-function checkPin(pin, stored) {
+function checkPassword(pw, stored) {
   const [salt, hash] = stored.split(':');
-  const test = crypto.scryptSync(String(pin), salt, 32);
+  const test = crypto.scryptSync(String(pw), salt, 32);
   return crypto.timingSafeEqual(test, Buffer.from(hash, 'hex'));
 }
-// التاريخ والوقت حسب توقيت العراق
 function nowParts() {
   const f = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -61,160 +109,446 @@ function getSettings() {
   return Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
 }
 const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const TIME_RE = /^\d{2}:\d{2}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
 
-function enrich(row, s) {
-  const out = { ...row, worked_minutes: null, late_minutes: 0, status: 'غائب' };
-  if (row.check_in) {
-    const late = toMin(row.check_in) - toMin(s.work_start);
-    out.late_minutes = late > Number(s.grace_minutes) ? late : 0;
-    out.status = out.late_minutes ? 'متأخر' : 'حاضر';
-  }
-  if (row.check_in && row.check_out) {
-    out.worked_minutes = Math.max(0, toMin(row.check_out) - toMin(row.check_in));
+// المسافة بالمتر بين نقطتين
+function distanceM(lat1, lng1, lat2, lng2) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function datesBetween(from, to) {
+  const out = [];
+  for (let d = new Date(from + 'T00:00:00Z'); d <= new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
   }
   return out;
+}
+function monthRange(month) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` };
+}
+
+// حساب يوم واحد لموظف
+function dayInfo(emp, date, rec, leave, s, today) {
+  const weekend = s.weekend_days.split(',').filter(Boolean).map(Number);
+  const isWeekend = weekend.includes(new Date(date + 'T00:00:00Z').getUTCDay());
+  const r = {
+    work_date: date, check_in: rec?.check_in || null, check_out: rec?.check_out || null,
+    in_lat: rec?.in_lat ?? null, in_lng: rec?.in_lng ?? null, out_lat: rec?.out_lat ?? null, out_lng: rec?.out_lng ?? null,
+    worked_minutes: null, late_minutes: 0, overtime_minutes: 0, status: '', leave_note: leave?.note || '',
+  };
+  if (r.check_in && r.check_out) r.worked_minutes = Math.max(0, toMin(r.check_out) - toMin(r.check_in));
+  if (r.check_in) {
+    if (isWeekend) {
+      r.status = 'دوام بالعطلة';
+      r.overtime_minutes = r.worked_minutes || 0; // كل دوام العطلة أوفر تايم
+    } else {
+      const late = toMin(r.check_in) - toMin(emp.shift_start);
+      r.late_minutes = late > Number(s.grace_minutes) ? late : 0;
+      r.status = r.late_minutes ? 'متأخر' : 'حاضر';
+      if (r.check_out) {
+        const otStart = Math.max(toMin(emp.overtime_after), toMin(r.check_in));
+        r.overtime_minutes = Math.max(0, toMin(r.check_out) - otStart);
+      }
+    }
+  } else if (leave) r.status = leave.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب';
+  else if (isWeekend) r.status = 'عطلة';
+  else if (date > today) r.status = 'لم يأتِ بعد';
+  else if (date === today) r.status = 'لم يسجّل بعد';
+  else r.status = 'غائب';
+  return r;
+}
+
+function employeeDays(emp, from, to) {
+  const s = getSettings();
+  const { date: today } = nowParts();
+  const recs = new Map(db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date BETWEEN ? AND ?')
+    .all(emp.id, from, to).map((r) => [r.work_date, r]));
+  const leaves = new Map(db.prepare('SELECT * FROM leaves WHERE employee_id = ? AND leave_date BETWEEN ? AND ?')
+    .all(emp.id, from, to).map((r) => [r.leave_date, r]));
+  return datesBetween(from, to).map((d) => dayInfo(emp, d, recs.get(d), leaves.get(d), s, today));
+}
+
+// كشف الراتب الشهري
+function payroll(emp, month) {
+  const s = getSettings();
+  const { from, to } = monthRange(month);
+  const days = employeeDays(emp, from, to);
+  const shiftMin = Math.max(1, toMin(emp.shift_end) - toMin(emp.shift_start));
+  const dailyRate = emp.salary / Number(s.month_days || 30);
+  const hourlyRate = dailyRate / (shiftMin / 60);
+  const count = (st) => days.filter((d) => d.status === st).length;
+  const absent = count('غائب');
+  const unpaidLeave = count('إجازة بدون راتب');
+  const overtimeMin = days.reduce((a, d) => a + d.overtime_minutes, 0);
+  const lateMin = days.reduce((a, d) => a + d.late_minutes, 0);
+  const absenceDeduction = (absent + unpaidLeave) * dailyRate;
+  const overtimePay = (overtimeMin / 60) * hourlyRate * emp.overtime_rate;
+  const round = (n) => Math.round(n);
+  return {
+    month, from, to, days,
+    summary: {
+      present_days: count('حاضر') + count('متأخر') + count('دوام بالعطلة'),
+      late_days: count('متأخر'), late_minutes: lateMin,
+      absent_days: absent, paid_leave_days: count('إجازة مدفوعة'), unpaid_leave_days: unpaidLeave,
+      overtime_minutes: overtimeMin,
+      worked_minutes: days.reduce((a, d) => a + (d.worked_minutes || 0), 0),
+      base_salary: round(emp.salary), daily_rate: round(dailyRate), hourly_rate: round(hourlyRate),
+      absence_deduction: round(absenceDeduction), overtime_pay: round(overtimePay),
+      net_salary: round(emp.salary - absenceDeduction + overtimePay),
+    },
+  };
+}
+
+const publicEmp = (e) => ({
+  id: e.id, username: e.username, name: e.name, department: e.department, job_title: e.job_title,
+  salary: e.salary, shift_start: e.shift_start, shift_end: e.shift_end,
+  overtime_after: e.overtime_after, overtime_rate: e.overtime_rate, active: e.active,
+});
+
+// ---------- الجلسات ----------
+function newSession(kind, employeeId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare('INSERT INTO sessions(token, kind, employee_id, expires) VALUES (?, ?, ?, ?)')
+    .run(token, kind, employeeId ?? null, Date.now() + 30 * 24 * 3600 * 1000);
+  return token;
+}
+function auth(kind) {
+  return (req, res, next) => {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    const s = db.prepare('SELECT * FROM sessions WHERE token = ?').get(token);
+    if (!s || s.kind !== kind || s.expires < Date.now()) return res.status(401).json({ error: 'سجّل دخول' });
+    if (kind === 'employee') {
+      const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND active = 1').get(s.employee_id);
+      if (!emp) return res.status(401).json({ error: 'الحساب موقوف' });
+      req.emp = emp;
+    }
+    req.token = token;
+    next();
+  };
 }
 
 // ---------- التطبيق ----------
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-function findEmployee(code, pin) {
-  const emp = db.prepare('SELECT * FROM employees WHERE code = ? AND active = 1').get(String(code || '').trim());
-  if (!emp || !checkPin(pin || '', emp.pin_hash)) return null;
-  return emp;
-}
-
-// حالة الموظف اليوم
-app.post('/api/status', (req, res) => {
-  const emp = findEmployee(req.body.code, req.body.pin);
-  if (!emp) return res.status(401).json({ error: 'كود الموظف أو الرمز السري غير صحيح' });
-  const { date } = nowParts();
-  const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(emp.id, date);
-  res.json({ name: emp.name, date, record: rec || null });
+app.post('/api/logout', (req, res) => {
+  db.prepare('DELETE FROM sessions WHERE token = ?').run((req.headers.authorization || '').replace('Bearer ', ''));
+  res.json({ ok: true });
 });
 
-// تسجيل حضور / انصراف
-app.post('/api/punch', (req, res) => {
-  const { code, pin, action, lat, lng } = req.body;
-  const emp = findEmployee(code, pin);
-  if (!emp) return res.status(401).json({ error: 'كود الموظف أو الرمز السري غير صحيح' });
-  const { date, time } = nowParts();
+// ----- الموظف -----
+app.post('/api/login', (req, res) => {
+  const emp = db.prepare('SELECT * FROM employees WHERE username = ? AND active = 1').get(String(req.body.username || '').trim());
+  if (!emp || !checkPassword(req.body.password || '', emp.password_hash)) {
+    return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  }
+  res.json({ token: newSession('employee', emp.id), name: emp.name });
+});
+
+app.get('/api/me', auth('employee'), (req, res) => {
+  const { date } = nowParts();
+  const month = date.slice(0, 7);
+  const s = getSettings();
+  const p = payroll(req.emp, month);
+  res.json({
+    employee: publicEmp(req.emp), today: p.days.find((d) => d.work_date === date), date,
+    month, summary: p.summary, days: p.days.filter((d) => d.work_date <= date).reverse(),
+    location_required: !!(s.location_lat && s.location_lng), company_name: s.company_name,
+  });
+});
+
+app.get('/api/me/payslip', auth('employee'), (req, res) => {
+  const month = MONTH_RE.test(req.query.month || '') ? req.query.month : nowParts().date.slice(0, 7);
+  res.json({ employee: publicEmp(req.emp), company_name: getSettings().company_name, ...payroll(req.emp, month) });
+});
+
+app.post('/api/me/password', auth('employee'), (req, res) => {
+  const { old_password, new_password } = req.body;
+  if (!checkPassword(old_password || '', req.emp.password_hash)) return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+  if (String(new_password || '').length < 4) return res.status(400).json({ error: 'كلمة المرور لازم 4 أحرف على الأقل' });
+  db.prepare('UPDATE employees SET password_hash = ? WHERE id = ?').run(hashPassword(new_password), req.emp.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/punch', auth('employee'), (req, res) => {
+  const { action, lat, lng } = req.body;
+  const emp = req.emp;
+  const s = getSettings();
   const la = typeof lat === 'number' ? lat : null;
   const ln = typeof lng === 'number' ? lng : null;
-  const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(emp.id, date);
 
+  // التحقق من الموقع
+  let dist = null;
+  if (s.location_lat && s.location_lng) {
+    if (la == null || ln == null) return res.status(400).json({ error: 'لازم تسمح بالوصول للموقع حتى تكدر تبصم' });
+    dist = distanceM(la, ln, Number(s.location_lat), Number(s.location_lng));
+    if (dist > Number(s.location_radius)) {
+      return res.status(403).json({ error: `أنت بعيد عن مكان العمل (${Math.round(dist)} متر). البصمة مسموحة بس داخل مكان العمل.` });
+    }
+  }
+
+  const { date, time } = nowParts();
+  const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(emp.id, date);
   if (action === 'in') {
     if (rec && rec.check_in) return res.status(400).json({ error: `مسجّل حضورك اليوم من الساعة ${rec.check_in.slice(0, 5)}` });
-    db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, in_lat, in_lng) VALUES (?, ?, ?, ?, ?)')
-      .run(emp.id, date, time, la, ln);
+    db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, in_lat, in_lng, in_distance) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(emp.id, date, time, la, ln, dist);
     return res.json({ ok: true, message: `أهلاً ${emp.name}، تم تسجيل حضورك الساعة ${time.slice(0, 5)}` });
   }
   if (action === 'out') {
     if (!rec || !rec.check_in) return res.status(400).json({ error: 'لازم تسجّل حضور أول' });
     if (rec.check_out) return res.status(400).json({ error: `مسجّل انصرافك اليوم الساعة ${rec.check_out.slice(0, 5)}` });
-    db.prepare('UPDATE attendance SET check_out = ?, out_lat = ?, out_lng = ? WHERE id = ?').run(time, la, ln, rec.id);
+    db.prepare('UPDATE attendance SET check_out = ?, out_lat = ?, out_lng = ?, out_distance = ? WHERE id = ?').run(time, la, ln, dist, rec.id);
     return res.json({ ok: true, message: `مع السلامة ${emp.name}، تم تسجيل انصرافك الساعة ${time.slice(0, 5)}` });
   }
   res.status(400).json({ error: 'عملية غير معروفة' });
 });
 
-// ---------- المدير ----------
-const sessions = new Map(); // token -> expiry
-function adminAuth(req, res, next) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  const exp = sessions.get(token);
-  if (!exp || exp < Date.now()) return res.status(401).json({ error: 'سجّل دخول المدير' });
-  next();
-}
+// ----- المدير -----
+const admin = auth('admin');
 app.post('/api/admin/login', (req, res) => {
   const a = Buffer.from(String(req.body.password || ''));
   const b = Buffer.from(ADMIN_PASSWORD);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
-  const token = crypto.randomBytes(24).toString('hex');
-  sessions.set(token, Date.now() + 12 * 3600 * 1000);
-  res.json({ token });
+  res.json({ token: newSession('admin') });
 });
 
-app.get('/api/admin/employees', adminAuth, (req, res) => {
-  res.json(db.prepare('SELECT id, code, name, department, active FROM employees ORDER BY active DESC, name').all());
+function validateEmployee(body, isNew) {
+  const { username, name, password, salary, shift_start, shift_end, overtime_after, overtime_rate } = body;
+  if (isNew && (!username || !name || !password)) return 'اسم المستخدم والاسم وكلمة المرور مطلوبة';
+  if (username !== undefined && !/^[A-Za-z0-9_.-]{2,30}$/.test(String(username))) return 'اسم المستخدم لازم يكون بالإنكليزي أو أرقام بدون فراغات';
+  if (password && String(password).length < 4) return 'كلمة المرور لازم 4 أحرف على الأقل';
+  for (const t of [shift_start, shift_end, overtime_after]) if (t !== undefined && !TIME_RE.test(t)) return 'صيغة الوقت غير صحيحة';
+  if (salary !== undefined && !(Number(salary) >= 0)) return 'الراتب غير صحيح';
+  if (overtime_rate !== undefined && !(Number(overtime_rate) >= 0)) return 'مضاعف الأوفر تايم غير صحيح';
+  const ss = shift_start, se = shift_end;
+  if (ss && se && toMin(se) <= toMin(ss)) return 'نهاية الدوام لازم تكون بعد بدايته';
+  return null;
+}
+
+app.get('/api/admin/employees', admin, (req, res) => {
+  res.json(db.prepare('SELECT * FROM employees ORDER BY active DESC, name').all().map(publicEmp));
 });
-app.post('/api/admin/employees', adminAuth, (req, res) => {
-  const { code, name, department, pin } = req.body;
-  if (!code || !name || !pin) return res.status(400).json({ error: 'الكود والاسم والرمز السري مطلوبة' });
-  if (!/^\d{4,8}$/.test(String(pin))) return res.status(400).json({ error: 'الرمز السري لازم يكون من 4 إلى 8 أرقام' });
+app.post('/api/admin/employees', admin, (req, res) => {
+  const b = req.body;
+  const err = validateEmployee(b, true);
+  if (err) return res.status(400).json({ error: err });
   try {
-    db.prepare('INSERT INTO employees(code, name, department, pin_hash) VALUES (?, ?, ?, ?)')
-      .run(String(code).trim(), name.trim(), (department || '').trim(), hashPin(pin));
+    db.prepare(`INSERT INTO employees(username, name, department, job_title, password_hash, salary, shift_start, shift_end, overtime_after, overtime_rate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      String(b.username).trim(), b.name.trim(), (b.department || '').trim(), (b.job_title || '').trim(), hashPassword(b.password),
+      Number(b.salary || 0), b.shift_start || '08:00', b.shift_end || '16:00', b.overtime_after || b.shift_end || '16:00',
+      Number(b.overtime_rate ?? 1.5));
     res.json({ ok: true });
   } catch (e) {
-    res.status(400).json({ error: 'كود الموظف مستخدم مسبقاً' });
+    res.status(400).json({ error: 'اسم المستخدم مستخدم مسبقاً' });
   }
 });
-app.put('/api/admin/employees/:id', adminAuth, (req, res) => {
-  const { name, department, pin, active } = req.body;
+app.put('/api/admin/employees/:id', admin, (req, res) => {
   const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(req.params.id));
   if (!emp) return res.status(404).json({ error: 'الموظف غير موجود' });
-  if (pin && !/^\d{4,8}$/.test(String(pin))) return res.status(400).json({ error: 'الرمز السري لازم يكون من 4 إلى 8 أرقام' });
-  db.prepare('UPDATE employees SET name = ?, department = ?, active = ?, pin_hash = ? WHERE id = ?').run(
-    name ?? emp.name, department ?? emp.department,
-    active === undefined ? emp.active : (active ? 1 : 0),
-    pin ? hashPin(pin) : emp.pin_hash, emp.id);
+  const b = { ...req.body };
+  delete b.username;
+  const merged = { ...emp, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined && v !== '')) };
+  const err = validateEmployee({ ...b, shift_start: merged.shift_start, shift_end: merged.shift_end }, false);
+  if (err) return res.status(400).json({ error: err });
+  db.prepare(`UPDATE employees SET name = ?, department = ?, job_title = ?, salary = ?, shift_start = ?, shift_end = ?,
+    overtime_after = ?, overtime_rate = ?, active = ?, password_hash = ? WHERE id = ?`).run(
+    merged.name, merged.department ?? '', merged.job_title ?? '', Number(merged.salary), merged.shift_start, merged.shift_end,
+    merged.overtime_after, Number(merged.overtime_rate), b.active === undefined ? emp.active : (b.active ? 1 : 0),
+    b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
+  if (b.active === 0 || b.active === false || b.password) {
+    db.prepare("DELETE FROM sessions WHERE kind = 'employee' AND employee_id = ?").run(emp.id);
+  }
   res.json({ ok: true });
 });
 
+function activeEmployees(employeeId) {
+  return db.prepare('SELECT * FROM employees WHERE active = 1' + (employeeId ? ' AND id = ?' : '') + ' ORDER BY name')
+    .all(...(employeeId ? [Number(employeeId)] : []));
+}
 function report(from, to, employeeId) {
-  const s = getSettings();
-  const emps = db.prepare('SELECT id, code, name, department FROM employees WHERE active = 1' +
-    (employeeId ? ' AND id = ?' : '') + ' ORDER BY name').all(...(employeeId ? [Number(employeeId)] : []));
-  const recs = db.prepare('SELECT * FROM attendance WHERE work_date BETWEEN ? AND ?').all(from, to);
-  const byKey = new Map(recs.map((r) => [r.employee_id + '|' + r.work_date, r]));
   const rows = [];
-  for (let d = new Date(from + 'T00:00:00Z'); d <= new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
-    const date = d.toISOString().slice(0, 10);
-    for (const e of emps) {
-      const r = byKey.get(e.id + '|' + date) || { work_date: date, check_in: null, check_out: null };
-      rows.push({ ...enrich(r, s), employee_id: e.id, code: e.code, name: e.name, department: e.department });
+  const emps = activeEmployees(employeeId);
+  const byEmp = emps.map((e) => [e, employeeDays(e, from, to)]);
+  for (const date of datesBetween(from, to)) {
+    for (const [e, days] of byEmp) {
+      const d = days.find((x) => x.work_date === date);
+      rows.push({ ...d, employee_id: e.id, username: e.username, name: e.name, department: e.department });
     }
   }
   return rows;
 }
-const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
 
-app.get('/api/admin/today', adminAuth, (req, res) => {
+app.get('/api/admin/today', admin, (req, res) => {
   const { date } = nowParts();
   res.json({ date, rows: report(date, date) });
 });
-app.get('/api/admin/report', adminAuth, (req, res) => {
+app.get('/api/admin/report', admin, (req, res) => {
   const { from, to, employee_id } = req.query;
-  if (!validDate(from) || !validDate(to) || from > to) return res.status(400).json({ error: 'حدد فترة صحيحة' });
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return res.status(400).json({ error: 'حدد فترة صحيحة' });
   res.json(report(from, to, employee_id));
 });
-app.get('/api/admin/report.csv', adminAuth, (req, res) => {
+app.get('/api/admin/report.csv', admin, (req, res) => {
   const { from, to, employee_id } = req.query;
-  if (!validDate(from) || !validDate(to) || from > to) return res.status(400).send('bad range');
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return res.status(400).send('bad range');
   const rows = report(from, to, employee_id);
-  const head = ['التاريخ', 'الكود', 'الاسم', 'القسم', 'الحضور', 'الانصراف', 'الحالة', 'دقائق التأخير', 'ساعات العمل'];
+  const head = ['التاريخ', 'المستخدم', 'الاسم', 'القسم', 'الحضور', 'الانصراف', 'الحالة', 'دقائق التأخير', 'ساعات العمل', 'ساعات الأوفر تايم'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = rows.map((r) => [r.work_date, r.code, r.name, r.department, r.check_in || '', r.check_out || '', r.status,
-    r.late_minutes, r.worked_minutes == null ? '' : (r.worked_minutes / 60).toFixed(2)].map(esc).join(','));
+  const h = (m) => (m == null ? '' : (m / 60).toFixed(2));
+  const lines = rows.map((r) => [r.work_date, r.username, r.name, r.department, r.check_in || '', r.check_out || '', r.status,
+    r.late_minutes, h(r.worked_minutes), h(r.overtime_minutes)].map(esc).join(','));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="attendance_${from}_${to}.csv"`);
   res.send('﻿' + [head.map(esc).join(','), ...lines].join('\n'));
 });
 
-app.get('/api/admin/settings', adminAuth, (req, res) => res.json(getSettings()));
-app.put('/api/admin/settings', adminAuth, (req, res) => {
-  const { work_start, work_end, grace_minutes } = req.body;
-  const t = /^\d{2}:\d{2}$/;
-  if (!t.test(work_start) || !t.test(work_end) || !(Number(grace_minutes) >= 0)) return res.status(400).json({ error: 'قيم غير صحيحة' });
-  const up = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
-  up.run(work_start, 'work_start'); up.run(work_end, 'work_end'); up.run(String(Number(grace_minutes)), 'grace_minutes');
+// الرواتب
+app.get('/api/admin/payroll', admin, (req, res) => {
+  const month = req.query.month;
+  if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
+  res.json(activeEmployees().map((e) => ({ employee: publicEmp(e), summary: payroll(e, month).summary })));
+});
+app.get('/api/admin/payslip', admin, (req, res) => {
+  const { month, employee_id } = req.query;
+  if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(employee_id));
+  if (!emp) return res.status(404).json({ error: 'الموظف غير موجود' });
+  res.json({ employee: publicEmp(emp), company_name: getSettings().company_name, ...payroll(emp, month) });
+});
+
+// الإجازات المدفوعة
+app.get('/api/admin/leaves', admin, (req, res) => {
+  const month = MONTH_RE.test(req.query.month || '') ? req.query.month : nowParts().date.slice(0, 7);
+  const { from, to } = monthRange(month);
+  res.json(db.prepare(`SELECT l.*, e.name FROM leaves l JOIN employees e ON e.id = l.employee_id
+    WHERE leave_date BETWEEN ? AND ? ORDER BY leave_date, e.name`).all(from, to));
+});
+app.post('/api/admin/leaves', admin, (req, res) => {
+  const { employee_id, from, to, note } = req.body;
+  const paid = req.body.paid === false || req.body.paid === 0 || req.body.paid === '0' ? 0 : 1;
+  const end = to || from;
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(end) || from > end) return res.status(400).json({ error: 'حدد التاريخ' });
+  if (!db.prepare('SELECT id FROM employees WHERE id = ?').get(Number(employee_id))) return res.status(400).json({ error: 'اختار الموظف' });
+  const days = datesBetween(from, end);
+  if (days.length > 60) return res.status(400).json({ error: 'الفترة طويلة جداً' });
+  const ins = db.prepare('INSERT OR REPLACE INTO leaves(employee_id, leave_date, note, paid) VALUES (?, ?, ?, ?)');
+  for (const d of days) ins.run(Number(employee_id), d, (note || '').trim(), paid);
+  res.json({ ok: true, count: days.length });
+});
+app.delete('/api/admin/leaves/:id', admin, (req, res) => {
+  db.prepare('DELETE FROM leaves WHERE id = ?').run(Number(req.params.id));
   res.json({ ok: true });
 });
 
+// الإعدادات
+app.get('/api/admin/settings', admin, (req, res) => {
+  const s = getSettings(); delete s.vapid_private; res.json(s);
+});
+app.put('/api/admin/settings', admin, (req, res) => {
+  const b = req.body;
+  const s = { ...getSettings() };
+  if (b.company_name !== undefined) s.company_name = String(b.company_name).trim();
+  if (b.grace_minutes !== undefined) {
+    if (!(Number(b.grace_minutes) >= 0)) return res.status(400).json({ error: 'فترة السماح غير صحيحة' });
+    s.grace_minutes = String(Number(b.grace_minutes));
+  }
+  if (b.weekend_days !== undefined) {
+    if (!/^([0-6](,[0-6])*)?$/.test(b.weekend_days)) return res.status(400).json({ error: 'أيام العطلة غير صحيحة' });
+    s.weekend_days = b.weekend_days;
+  }
+  if (b.month_days !== undefined) {
+    if (!(Number(b.month_days) >= 1 && Number(b.month_days) <= 31)) return res.status(400).json({ error: 'عدد أيام الشهر غير صحيح' });
+    s.month_days = String(Number(b.month_days));
+  }
+  if (b.location_lat !== undefined || b.location_lng !== undefined) {
+    const la = b.location_lat === '' ? '' : Number(b.location_lat);
+    const ln = b.location_lng === '' ? '' : Number(b.location_lng);
+    if (la !== '' && !(la >= -90 && la <= 90)) return res.status(400).json({ error: 'خط العرض غير صحيح' });
+    if (ln !== '' && !(ln >= -180 && ln <= 180)) return res.status(400).json({ error: 'خط الطول غير صحيح' });
+    s.location_lat = String(la); s.location_lng = String(ln);
+  }
+  for (const k of ['remind_before', 'remind_late', 'remind_out_after']) {
+    if (b[k] === undefined) continue;
+    if (!(Number(b[k]) >= 0 && Number(b[k]) <= 240)) return res.status(400).json({ error: 'وقت التنبيه غير صحيح' });
+    s[k] = String(Number(b[k]));
+  }
+  if (b.location_radius !== undefined) {
+    if (!(Number(b.location_radius) >= 10)) return res.status(400).json({ error: 'نصف القطر لازم 10 متر أو أكثر' });
+    s.location_radius = String(Number(b.location_radius));
+  }
+  const up = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
+  for (const k of Object.keys(DEFAULT_SETTINGS)) up.run(s[k], k);
+  res.json({ ok: true });
+});
+
+// ---------- الإشعارات ----------
+app.get('/api/push/key', (req, res) => res.json({ key: VAPID_PUBLIC }));
+app.post('/api/me/push', auth('employee'), async (req, res) => {
+  const sub = req.body.subscription;
+  if (!sub || typeof sub.endpoint !== 'string' || !sub.keys) return res.status(400).json({ error: 'اشتراك غير صالح' });
+  db.prepare('INSERT OR REPLACE INTO push_subs(employee_id, endpoint, data) VALUES (?, ?, ?)')
+    .run(req.emp.id, sub.endpoint, JSON.stringify(sub));
+  await sendPush(req.emp.id, 'تم تفعيل التنبيهات ✅', 'راح نذكّرك بالبصمة قبل الدوام وبعد نهايته.');
+  res.json({ ok: true });
+});
+app.get('/api/me/push', auth('employee'), (req, res) => {
+  res.json({ count: db.prepare('SELECT COUNT(*) AS c FROM push_subs WHERE employee_id = ?').get(req.emp.id).c });
+});
+
+async function sendPush(employeeId, title, body) {
+  const subs = db.prepare('SELECT * FROM push_subs WHERE employee_id = ?').all(employeeId);
+  let sent = 0;
+  for (const s of subs) {
+    try {
+      await webpush.sendNotification(JSON.parse(s.data), JSON.stringify({ title, body, url: '/' }), { TTL: 3600 });
+      sent++;
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) db.prepare('DELETE FROM push_subs WHERE id = ?').run(s.id);
+    }
+  }
+  return sent;
+}
+
+// يفحص كل دقيقة منو يحتاج تذكير
+async function reminderTick() {
+  const s = getSettings();
+  const { date, time } = nowParts();
+  const now = toMin(time);
+  const weekend = s.weekend_days.split(',').filter(Boolean).map(Number);
+  if (weekend.includes(new Date(date + 'T00:00:00Z').getUTCDay())) return;
+  const emps = db.prepare(`SELECT e.* FROM employees e WHERE e.active = 1
+    AND EXISTS (SELECT 1 FROM push_subs p WHERE p.employee_id = e.id)
+    AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.employee_id = e.id AND l.leave_date = ?)`).all(date);
+  const logged = db.prepare('INSERT OR IGNORE INTO notif_log(employee_id, work_date, kind) VALUES (?, ?, ?)');
+  for (const e of emps) {
+    const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(e.id, date);
+    const start = toMin(e.shift_start), end = toMin(e.shift_end);
+    const jobs = [];
+    if (!rec?.check_in && now >= start - Number(s.remind_before) && now < start) {
+      jobs.push(['in_before', 'لا تنسى تبصم حضور ⏰', `دوامك يبدي الساعة ${e.shift_start}`]);
+    }
+    if (!rec?.check_in && now >= start + Number(s.remind_late) && now < end) {
+      jobs.push(['in_late', 'ما مسجّل حضورك لحد الآن ⚠️', 'إذا إنت بالدوام، افتح البرنامج وبصم حضور.']);
+    }
+    if (rec?.check_in && !rec.check_out && now >= end + Number(s.remind_out_after) && now < 24 * 60) {
+      jobs.push(['out', 'لا تنسى تبصم انصراف 👋', `دوامك خلص الساعة ${e.shift_end}`]);
+    }
+    for (const [kind, title, body] of jobs) {
+      if (logged.run(e.id, date, kind).changes) await sendPush(e.id, title, body);
+    }
+  }
+}
+
 if (require.main === module) {
   app.listen(PORT, () => console.log(`Attendance app running on http://localhost:${PORT}`));
+  setInterval(() => reminderTick().catch((e) => console.error('reminder error', e)), 60 * 1000);
 }
-module.exports = { app, db };
+module.exports = { app, db, distanceM, nowParts, reminderTick };

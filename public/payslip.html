@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فورمة الراتب</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Tahoma, "Noto Kufi Arabic", sans-serif; color: #111; margin: 0; background: #e9ecf1; direction: rtl; }
+  .sheet { background: #fff; width: 210mm; min-height: 297mm; margin: 16px auto; padding: 14mm; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 8px; }
+  .top h1 { margin: 0; font-size: 22px; } .top h2 { margin: 4px 0 0; font-size: 16px; font-weight: 600; }
+  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin: 12px 0; font-size: 13px; }
+  .info div { display: flex; justify-content: space-between; border-bottom: 1px dotted #999; padding: 3px 0; }
+  h3 { font-size: 14px; margin: 14px 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th, td { border: 1px solid #888; padding: 3px 5px; text-align: center; }
+  th { background: #eee; }
+  .money td { font-size: 13px; padding: 6px; text-align: right; } .money td:last-child { text-align: left; font-weight: 700; }
+  .net td { background: #f2f2f2; font-size: 15px; }
+  .sign { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 36px; font-size: 13px; text-align: center; }
+  .sign div { border-top: 1px solid #111; padding-top: 6px; }
+  .bar { text-align: center; margin: 16px; }
+  .bar button { font-family: inherit; font-size: 16px; padding: 10px 20px; border: 0; border-radius: 8px; background: #1f6feb; color: #fff; cursor: pointer; }
+  .wk { color: #777; }
+  @media print { body { background: #fff; } .sheet { margin: 0; width: auto; min-height: 0; padding: 0; } .bar { display: none; } }
+</style>
+</head>
+<body>
+<div class="bar"><button onclick="print()">🖨️ طباعة</button></div>
+<div class="sheet" id="sheet">جاري التحميل...</div>
+<script src="common.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const isMe = q.get('me') === '1';
+const tokenKey = isMe ? 'emp_token' : 'admin_token';
+const api = makeApi(tokenKey, () => { $('sheet').textContent = 'سجّل دخول أولاً ثم افتح الفورمة من جديد.'; });
+const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
+const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+(async () => {
+  const url = isMe ? `/api/me/payslip?month=${q.get('month')}` : `/api/admin/payslip?employee_id=${q.get('employee_id')}&month=${q.get('month')}`;
+  try {
+    const d = await api(url);
+    const e = d.employee, s = d.summary;
+    const [y, m] = d.month.split('-').map(Number);
+    document.title = `فورمة راتب - ${e.name} - ${d.month}`;
+    $('sheet').innerHTML = `
+      <div class="top">
+        <div><h1>${esc(d.company_name)}</h1><h2>كشف راتب وحضور شهر ${MONTHS[m - 1]} ${y}</h2></div>
+        <div style="font-size:12px;text-align:left">تاريخ الطباعة<br>${new Date().toLocaleDateString('en-GB')}</div>
+      </div>
+      <div class="info">
+        <div><span>اسم الموظف</span><b>${esc(e.name)}</b></div>
+        <div><span>العنوان الوظيفي</span><b>${esc(e.job_title) || '—'}</b></div>
+        <div><span>القسم</span><b>${esc(e.department) || '—'}</b></div>
+        <div><span>وقت الدوام</span><b>${e.shift_start} - ${e.shift_end}</b></div>
+        <div><span>يبدي الأوفر تايم من</span><b>${e.overtime_after} (×${e.overtime_rate})</b></div>
+        <div><span>الفترة</span><b>${d.from} إلى ${d.to}</b></div>
+      </div>
+
+      <h3>ملخص الحضور</h3>
+      <table><tr><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>أيام الغياب</th><th>إجازة مدفوعة</th><th>إجازة بدون راتب</th><th>ساعات العمل</th><th>ساعات الأوفر تايم</th></tr>
+      <tr><td>${s.present_days}</td><td>${s.late_days}</td><td>${s.late_minutes}</td><td>${s.absent_days}</td><td>${s.paid_leave_days}</td><td>${s.unpaid_leave_days}</td><td>${hrs(s.worked_minutes)}</td><td>${hrs(s.overtime_minutes)}</td></tr></table>
+
+      <h3>تفاصيل الراتب</h3>
+      <table class="money">
+        <tr><td>الراتب الأساسي</td><td>${money(s.base_salary)}</td></tr>
+        <tr><td>الراتب اليومي / أجر الساعة</td><td>${money(s.daily_rate)} / ${money(s.hourly_rate)}</td></tr>
+        <tr><td>خصم الغياب والإجازة بدون راتب (${s.absent_days + s.unpaid_leave_days} يوم)</td><td>- ${money(s.absence_deduction)}</td></tr>
+        <tr><td>أجر الأوفر تايم (${hrs(s.overtime_minutes)})</td><td>+ ${money(s.overtime_pay)}</td></tr>
+        <tr class="net"><td>صافي الراتب المستحق</td><td>${money(s.net_salary)}</td></tr>
+      </table>
+
+      <h3>السجل اليومي</h3>
+      <table><tr><th>التاريخ</th><th>اليوم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>
+      ${d.days.map((r) => `<tr class="${r.status === 'عطلة' ? 'wk' : ''}"><td>${r.work_date.slice(5)}</td><td>${DAYS[new Date(r.work_date + 'T00:00:00Z').getUTCDay()]}</td>
+        <td>${t5(r.check_in)}</td><td>${t5(r.check_out)}</td><td>${r.status}${r.leave_note ? ' (' + esc(r.leave_note) + ')' : ''}</td>
+        <td>${r.late_minutes ? r.late_minutes + ' د' : ''}</td><td>${r.worked_minutes != null ? hrs(r.worked_minutes) : ''}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : ''}</td></tr>`).join('')}
+      </table>
+
+      <p style="font-size:12px;margin-top:14px">أقر أنا الموقّع أدناه باستلامي صافي راتبي المذكور أعلاه وصحة بيانات الحضور.</p>
+      <div class="sign"><div>توقيع الموظف</div><div>المحاسب</div><div>المدير</div></div>`;
+  } catch (e) { $('sheet').textContent = e.message; }
+})();
+</script>
+</body>
+</html>

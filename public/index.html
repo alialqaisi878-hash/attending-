@@ -3,64 +3,194 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>تسجيل الحضور والانصراف</title>
+<title>الحضور والانصراف</title>
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
 </head>
 <body>
-<header><h1>الحضور والانصراف</h1><a href="admin.html">لوحة المدير</a></header>
+<header><h1 id="company">الحضور والانصراف</h1><span><a href="#" id="logout" class="hidden">خروج</a></span></header>
 <main>
-  <div class="card narrow">
-    <div class="clock" id="clock">--:--</div>
-    <div class="date" id="date"></div>
-    <label for="code">كود الموظف</label>
-    <input id="code" inputmode="numeric" autocomplete="username">
-    <label for="pin">الرمز السري</label>
-    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password">
-    <div class="row" style="margin-top:16px">
-      <button class="big in" id="btnIn">تسجيل حضور</button>
-      <button class="big out" id="btnOut">تسجيل انصراف</button>
+  <!-- تسجيل دخول الموظف -->
+  <div class="card narrow" id="loginBox">
+    <h2 style="margin-top:0;text-align:center">تسجيل الدخول</h2>
+    <label for="user">اسم المستخدم</label>
+    <input id="user" autocomplete="username" autocapitalize="off" dir="ltr">
+    <label for="pass">كلمة المرور</label>
+    <input id="pass" type="password" autocomplete="current-password" dir="ltr">
+    <button style="width:100%;margin-top:16px" id="loginBtn">دخول</button>
+    <div class="msg" id="loginMsg"></div>
+    <p class="muted" style="text-align:center;margin-top:16px"><a href="admin.html">دخول المدير</a></p>
+  </div>
+
+  <!-- الواجهة الرئيسية للموظف -->
+  <div id="home" class="hidden">
+    <div class="card">
+      <div class="hello">
+        <div><h2 id="empName"></h2><div class="muted" id="empInfo"></div></div>
+        <div style="text-align:left"><div class="clock" id="clock" style="font-size:32px">--:--</div><div class="muted" id="date"></div></div>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="big in" id="btnIn">تسجيل حضور</button>
+        <button class="big out" id="btnOut">تسجيل انصراف</button>
+      </div>
+      <div class="msg" id="msg"></div>
+      <p class="muted" id="todayLine" style="margin-bottom:0"></p>
+      <p class="muted" id="locNote" style="margin:6px 0 0"></p>
     </div>
-    <div class="msg" id="msg"></div>
-    <p class="muted" style="text-align:center;margin-top:14px">يتم حفظ موقعك مع كل تسجيل إذا سمحت بالوصول للموقع.</p>
+
+    <div class="card" id="pushCard">
+      <div class="hello"><div><b>تنبيهات البصمة</b><div class="muted" id="pushNote">نذكّرك قبل بداية الدوام، وإذا تأخرت، وبعد نهاية الدوام إذا ما بصمت انصراف.</div></div>
+      <button id="pushBtn" class="secondary">تفعيل التنبيهات 🔔</button></div>
+      <div class="msg" id="pushMsg"></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="sPresent" style="color:var(--green)">0</div><div class="l">أيام الحضور هذا الشهر</div></div>
+      <div class="stat"><div class="n" id="sLate" style="color:var(--amber)">0</div><div class="l">أيام التأخير</div></div>
+      <div class="stat"><div class="n" id="sAbsent" style="color:var(--red)">0</div><div class="l">أيام الغياب</div></div>
+      <div class="stat"><div class="n" id="sLeave" style="color:var(--primary)">0</div><div class="l">إجازة مدفوعة</div></div>
+      <div class="stat"><div class="n" id="sUnpaid">0</div><div class="l">إجازة بدون راتب</div></div>
+      <div class="stat"><div class="n" id="sOT">0</div><div class="l">أوفر تايم</div></div>
+    </div>
+
+    <div class="card">
+      <div class="hello"><h3 style="margin:0">راتبي هذا الشهر (تقديري)</h3>
+        <button class="secondary small-btn" id="printBtn">طباعة فورمة الراتب</button></div>
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <div class="kv"><span>الراتب الأساسي</span><b id="pBase"></b></div>
+          <div class="kv"><span>خصم الغياب والإجازة بدون راتب</span><b id="pAbs" style="color:var(--red)"></b></div>
+          <div class="kv"><span>أجر الأوفر تايم</span><b id="pOT" style="color:var(--green)"></b></div>
+          <div class="kv"><span>الصافي حتى اليوم</span><b class="net" id="pNet"></b></div>
+        </div>
+        <div>
+          <div class="kv"><span>وقت الدوام</span><b id="pShift"></b></div>
+          <div class="kv"><span>يبدي الأوفر تايم من</span><b id="pOTAfter"></b></div>
+          <div class="kv"><span>أجر ساعة الأوفر تايم</span><b id="pOTRate"></b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">سجل هذا الشهر</h3>
+      <div class="table-wrap"><table id="daysTable"></table></div>
+    </div>
+
+    <div class="card narrow">
+      <h3 style="margin-top:0">تغيير كلمة المرور</h3>
+      <label>كلمة المرور الحالية</label><input type="password" id="oldPw" dir="ltr">
+      <label>كلمة المرور الجديدة</label><input type="password" id="newPw" dir="ltr">
+      <button style="margin-top:12px" class="secondary" id="pwBtn">تغيير</button>
+      <div class="msg" id="pwMsg"></div>
+    </div>
   </div>
 </main>
+<script src="common.js"></script>
 <script>
-const $ = (id) => document.getElementById(id);
+const api = makeApi('emp_token', showLogin);
+let monthNow = '';
+
+function showLogin() {
+  store.del('emp_token');
+  $('home').classList.add('hidden'); $('logout').classList.add('hidden'); $('loginBox').classList.remove('hidden');
+}
+$('logout').onclick = async (e) => { e.preventDefault(); try { await api('/api/logout', { method: 'POST' }); } catch (x) {} showLogin(); };
+
+$('loginBtn').onclick = async () => {
+  try {
+    const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('user').value, password: $('pass').value }) });
+    store.set('emp_token', d.token); store.set('emp_user', $('user').value.trim()); $('pass').value = '';
+    loadHome();
+  } catch (e) { msg('loginMsg', e.message, false); }
+};
+$('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
+$('user').value = store.get('emp_user');
+
 function tick() {
   const n = new Date();
   $('clock').textContent = n.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baghdad' });
-  $('date').textContent = n.toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Baghdad' });
+  $('date').textContent = n.toLocaleDateString('ar-IQ', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'Asia/Baghdad' });
 }
 tick(); setInterval(tick, 1000);
-try { $('code').value = localStorage.getItem('emp_code') || ''; } catch (e) {}
 
-function getLocation() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) return resolve({});
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => resolve({}), { timeout: 8000, enableHighAccuracy: true });
-  });
+async function loadHome() {
+  const d = await api('/api/me');
+  monthNow = d.month;
+  $('loginBox').classList.add('hidden'); $('home').classList.remove('hidden'); $('logout').classList.remove('hidden');
+  $('company').textContent = d.company_name;
+  const e = d.employee, s = d.summary;
+  $('empName').textContent = 'أهلاً ' + e.name;
+  $('empInfo').textContent = [e.job_title, e.department].filter(Boolean).join(' · ');
+  const t = d.today;
+  $('todayLine').textContent = `اليوم: ${t.status} · الحضور ${t5(t.check_in)} · الانصراف ${t5(t.check_out)}`;
+  $('btnIn').disabled = !!t.check_in; $('btnOut').disabled = !t.check_in || !!t.check_out;
+  $('locNote').textContent = d.location_required ? 'البصمة مسموحة بس داخل مكان العمل، ولازم تسمح للمتصفح يوصل لموقعك.' : '';
+  $('sPresent').textContent = s.present_days; $('sLate').textContent = s.late_days; $('sAbsent').textContent = s.absent_days;
+  $('sLeave').textContent = s.paid_leave_days; $('sUnpaid').textContent = s.unpaid_leave_days; $('sOT').textContent = hrs(s.overtime_minutes);
+  $('pBase').textContent = money(s.base_salary); $('pAbs').textContent = '- ' + money(s.absence_deduction);
+  $('pOT').textContent = '+ ' + money(s.overtime_pay); $('pNet').textContent = money(s.net_salary);
+  $('pShift').textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $('pOTAfter').textContent = t5(e.overtime_after);
+  $('pOTRate').textContent = money(s.hourly_rate * e.overtime_rate);
+  $('daysTable').innerHTML = '<tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>' +
+    d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}</td><td>${t5(r.check_out)}</td><td>${badge(r.status)}</td>
+      <td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
 }
-function show(text, ok) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
 
 async function punch(action) {
-  const code = $('code').value.trim(), pin = $('pin').value.trim();
-  if (!code || !pin) return show('اكتب كود الموظف والرمز السري', false);
   $('btnIn').disabled = $('btnOut').disabled = true;
-  show('جاري التسجيل...', true);
+  msg('msg', 'جاري تحديد موقعك والتسجيل...', true);
   const loc = await getLocation();
   try {
-    const r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, pin, action, ...loc }) });
-    const d = await r.json();
-    if (r.ok) { show(d.message, true); $('pin').value = ''; try { localStorage.setItem('emp_code', code); } catch (e) {} }
-    else show(d.error, false);
-  } catch (e) { show('تعذر الاتصال بالخادم', false); }
-  $('btnIn').disabled = $('btnOut').disabled = false;
+    const d = await api('/api/punch', { method: 'POST', body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng }) });
+    msg('msg', d.message, true);
+  } catch (e) { msg('msg', e.message, false); }
+  loadHome().catch(() => {});
 }
 $('btnIn').onclick = () => punch('in');
 $('btnOut').onclick = () => punch('out');
+$('printBtn').onclick = () => window.open('payslip.html?me=1&month=' + monthNow, '_blank');
+
+$('pwBtn').onclick = async () => {
+  try { await api('/api/me/password', { method: 'POST', body: JSON.stringify({ old_password: $('oldPw').value, new_password: $('newPw').value }) });
+    msg('pwMsg', 'تم تغيير كلمة المرور', true); $('oldPw').value = $('newPw').value = ''; }
+  catch (e) { msg('pwMsg', e.message, false); }
+};
+
+// ----- التنبيهات -----
+let swReg = null;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').then((r) => { swReg = r; refreshPush(); }).catch(() => {});
+function b64ToBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+async function refreshPush() {
+  if (!swReg || !('PushManager' in window)) {
+    $('pushBtn').disabled = true;
+    $('pushNote').textContent = /iPhone|iPad/.test(navigator.userAgent)
+      ? 'بالآيفون: افتح البرنامج من Safari، اضغط زر المشاركة ثم "إضافة إلى الشاشة الرئيسية"، وافتحه من الأيقونة حتى تشتغل التنبيهات.'
+      : 'هذا المتصفح ما يدعم التنبيهات.';
+    return;
+  }
+  const sub = await swReg.pushManager.getSubscription();
+  if (sub && Notification.permission === 'granted') { $('pushBtn').textContent = 'التنبيهات مفعّلة ✅'; $('pushBtn').disabled = true; }
+}
+$('pushBtn').onclick = async () => {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return msg('pushMsg', 'لازم تسمح بالإشعارات من إعدادات المتصفح', false);
+    const { key } = await (await fetch('/api/push/key')).json();
+    const sub = (await swReg.pushManager.getSubscription()) ||
+      (await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }));
+    await api('/api/me/push', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
+    msg('pushMsg', 'تم تفعيل التنبيهات على هذا الجهاز', true); refreshPush();
+  } catch (e) { msg('pushMsg', 'تعذر تفعيل التنبيهات: ' + e.message, false); }
+};
+
+if (store.get('emp_token')) loadHome().catch(() => {});
 </script>
 </body>
 </html>
