@@ -1,0 +1,19 @@
+{
+  "name": "attendance-app",
+  "version": "1.0.0",
+  "description": "برنامج حضور وانصراف اونلاين",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.22.3"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة المدير - الحضور والانصراف</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>لوحة المدير</h1><span><a href="index.html">صفحة الموظف</a> &nbsp; <a href="#" id="logout" class="hidden">خروج</a></span></header>
+<main>
+  <!-- تسجيل الدخول -->
+  <div class="card narrow" id="loginBox">
+    <label for="pass">كلمة مرور المدير</label>
+    <input id="pass" type="password">
+    <button style="width:100%;margin-top:14px" id="loginBtn">دخول</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button data-tab="today" class="active">اليوم</button>
+      <button data-tab="report">التقارير</button>
+      <button data-tab="employees">الموظفين</button>
+      <button data-tab="settings">الإعدادات</button>
+    </div>
+
+    <!-- اليوم -->
+    <section id="tab-today">
+      <div class="stats">
+        <div class="stat"><div class="n" id="sTotal">0</div><div class="l">عدد الموظفين</div></div>
+        <div class="stat"><div class="n" id="sPresent" style="color:var(--green)">0</div><div class="l">حاضر</div></div>
+        <div class="stat"><div class="n" id="sLate" style="color:var(--amber)">0</div><div class="l">متأخر</div></div>
+        <div class="stat"><div class="n" id="sAbsent" style="color:var(--red)">0</div><div class="l">غائب</div></div>
+      </div>
+      <div class="card"><div class="muted" id="todayDate"></div><div class="table-wrap"><table id="todayTable"></table></div></div>
+    </section>
+
+    <!-- التقارير -->
+    <section id="tab-report" class="hidden">
+      <div class="card">
+        <div class="row">
+          <div><label>من</label><input type="date" id="rFrom"></div>
+          <div><label>إلى</label><input type="date" id="rTo"></div>
+          <div><label>الموظف</label><select id="rEmp"><option value="">الكل</option></select></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="rRun">عرض التقرير</button>
+          <button class="secondary" id="rCsv">تنزيل Excel (CSV)</button>
+        </div>
+      </div>
+      <div class="card"><div class="muted" id="rSummary"></div><div class="table-wrap"><table id="reportTable"></table></div></div>
+    </section>
+
+    <!-- الموظفين -->
+    <section id="tab-employees" class="hidden">
+      <div class="card">
+        <h3 style="margin-top:0">إضافة موظف</h3>
+        <div class="row">
+          <div><label>كود الموظف</label><input id="eCode" inputmode="numeric"></div>
+          <div><label>الاسم</label><input id="eName"></div>
+          <div><label>القسم</label><input id="eDept"></div>
+          <div><label>الرمز السري (4-8 أرقام)</label><input id="ePin" inputmode="numeric"></div>
+        </div>
+        <button style="margin-top:12px" id="eAdd">إضافة</button>
+        <div class="msg" id="eMsg"></div>
+      </div>
+      <div class="card"><div class="table-wrap"><table id="empTable"></table></div></div>
+    </section>
+
+    <!-- الإعدادات -->
+    <section id="tab-settings" class="hidden">
+      <div class="card narrow">
+        <label>بداية الدوام</label><input type="time" id="sStart">
+        <label>نهاية الدوام</label><input type="time" id="sEnd">
+        <label>فترة السماح قبل احتساب التأخير (دقائق)</label><input type="number" min="0" id="sGrace">
+        <button style="width:100%;margin-top:14px" id="sSave">حفظ</button>
+        <div class="msg" id="sMsg"></div>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = '';
+try { token = sessionStorage.getItem('admin_token') || ''; } catch (e) {}
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const t5 = (t) => t ? t.slice(0, 5) : '—';
+const hrs = (m) => m == null ? '—' : `${Math.floor(m / 60)}س ${m % 60}د`;
+const mapLink = (lat, lng) => lat != null ? ` <a class="loc" target="_blank" href="https://maps.google.com/?q=${lat},${lng}">📍</a>` : '';
+function msg(id, text, ok) { const m = $(id); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+  if (r.status === 401 && url !== '/api/admin/login') { logout(); throw new Error('انتهت الجلسة'); }
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'خطأ');
+  return d;
+}
+function logout() { token = ''; try { sessionStorage.removeItem('admin_token'); } catch (e) {} $('app').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logout').classList.add('hidden'); }
+$('logout').onclick = (e) => { e.preventDefault(); logout(); };
+
+$('loginBtn').onclick = async () => {
+  try {
+    const d = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: $('pass').value }) });
+    token = d.token; try { sessionStorage.setItem('admin_token', token); } catch (e) {}
+    start();
+  } catch (e) { msg('loginMsg', e.message, false); }
+};
+$('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
+
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+  document.querySelectorAll('section').forEach((s) => s.classList.toggle('hidden', s.id !== 'tab-' + b.dataset.tab));
+  ({ today: loadToday, employees: loadEmployees, settings: loadSettings, report: () => {} })[b.dataset.tab]();
+});
+
+function attendanceRows(rows, withDate) {
+  return `<tr>${withDate ? '<th>التاريخ</th>' : ''}<th>الكود</th><th>الاسم</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th></tr>` +
+    rows.map((r) => `<tr>${withDate ? `<td>${r.work_date}</td>` : ''}<td>${esc(r.code)}</td><td>${esc(r.name)}</td><td>${esc(r.department)}</td>
+      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}</td>
+      <td><span class="badge b-${r.status}">${r.status}</span></td><td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td></tr>`).join('');
+}
+
+async function loadToday() {
+  const d = await api('/api/admin/today');
+  $('todayDate').textContent = 'تاريخ اليوم: ' + d.date;
+  const c = (s) => d.rows.filter((r) => r.status === s).length;
+  $('sTotal').textContent = d.rows.length; $('sPresent').textContent = c('حاضر'); $('sLate').textContent = c('متأخر'); $('sAbsent').textContent = c('غائب');
+  $('todayTable').innerHTML = d.rows.length ? attendanceRows(d.rows, false) : '<tr><td>ما كو موظفين بعد. ضيفهم من تبويب الموظفين.</td></tr>';
+}
+
+async function loadEmployees() {
+  const list = await api('/api/admin/employees');
+  $('rEmp').innerHTML = '<option value="">الكل</option>' + list.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+  $('empTable').innerHTML = '<tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>الحالة</th><th></th></tr>' + list.map((e) =>
+    `<tr><td>${esc(e.code)}</td><td>${esc(e.name)}</td><td>${esc(e.department)}</td><td>${e.active ? 'فعّال' : 'موقوف'}</td>
+     <td><button class="secondary" onclick="resetPin(${e.id})">تغيير الرمز</button>
+     <button class="secondary" onclick="toggleEmp(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('');
+}
+$('eAdd').onclick = async () => {
+  try {
+    await api('/api/admin/employees', { method: 'POST', body: JSON.stringify({ code: $('eCode').value, name: $('eName').value, department: $('eDept').value, pin: $('ePin').value }) });
+    msg('eMsg', 'تمت إضافة الموظف', true); ['eCode', 'eName', 'eDept', 'ePin'].forEach((i) => $(i).value = ''); loadEmployees();
+  } catch (e) { msg('eMsg', e.message, false); }
+};
+window.resetPin = async (id) => {
+  const pin = prompt('الرمز السري الجديد (4-8 أرقام):'); if (!pin) return;
+  try { await api('/api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ pin }) }); alert('تم تغيير الرمز'); } catch (e) { alert(e.message); }
+};
+window.toggleEmp = async (id, active) => { await api('/api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ active }) }); loadEmployees(); };
+
+function rangeQuery() { return `from=${$('rFrom').value}&to=${$('rTo').value}&employee_id=${$('rEmp').value}`; }
+$('rRun').onclick = async () => {
+  try {
+    const rows = await api('/api/admin/report?' + rangeQuery());
+    const total = rows.reduce((a, r) => a + (r.worked_minutes || 0), 0);
+    const c = (s) => rows.filter((r) => r.status === s).length;
+    $('rSummary').textContent = `أيام حضور: ${c('حاضر') + c('متأخر')} · تأخير: ${c('متأخر')} · غياب: ${c('غائب')} · مجموع ساعات العمل: ${hrs(total)}`;
+    $('reportTable').innerHTML = attendanceRows(rows, true);
+  } catch (e) { $('rSummary').textContent = e.message; }
+};
+$('rCsv').onclick = async () => {
+  const r = await fetch('/api/admin/report.csv?' + rangeQuery(), { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) return alert('حدد فترة صحيحة');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
+  a.download = `attendance_${$('rFrom').value}_${$('rTo').value}.csv`; a.click();
+};
+
+async function loadSettings() {
+  const s = await api('/api/admin/settings');
+  $('sStart').value = s.work_start; $('sEnd').value = s.work_end; $('sGrace').value = s.grace_minutes;
+}
+$('sSave').onclick = async () => {
+  try { await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ work_start: $('sStart').value, work_end: $('sEnd').value, grace_minutes: $('sGrace').value }) }); msg('sMsg', 'تم الحفظ', true); }
+  catch (e) { msg('sMsg', e.message, false); }
+};
+
+function start() {
+  $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
+  const today = new Date().toISOString().slice(0, 10);
+  $('rTo').value = today; $('rFrom').value = today.slice(0, 8) + '01';
+  loadToday().catch(() => {}); loadEmployees().catch(() => {});
+}
+if (token) start();
+</script>
+</body>
+</html>

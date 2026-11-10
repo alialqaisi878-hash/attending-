@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل الحضور والانصراف</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>الحضور والانصراف</h1><a href="admin.html">لوحة المدير</a></header>
+<main>
+  <div class="card narrow">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <label for="code">كود الموظف</label>
+    <input id="code" inputmode="numeric" autocomplete="username">
+    <label for="pin">الرمز السري</label>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password">
+    <div class="row" style="margin-top:16px">
+      <button class="big in" id="btnIn">تسجيل حضور</button>
+      <button class="big out" id="btnOut">تسجيل انصراف</button>
+    </div>
+    <div class="msg" id="msg"></div>
+    <p class="muted" style="text-align:center;margin-top:14px">يتم حفظ موقعك مع كل تسجيل إذا سمحت بالوصول للموقع.</p>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+function tick() {
+  const n = new Date();
+  $('clock').textContent = n.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baghdad' });
+  $('date').textContent = n.toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Baghdad' });
+}
+tick(); setInterval(tick, 1000);
+try { $('code').value = localStorage.getItem('emp_code') || ''; } catch (e) {}
+
+function getLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({});
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => resolve({}), { timeout: 8000, enableHighAccuracy: true });
+  });
+}
+function show(text, ok) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+async function punch(action) {
+  const code = $('code').value.trim(), pin = $('pin').value.trim();
+  if (!code || !pin) return show('اكتب كود الموظف والرمز السري', false);
+  $('btnIn').disabled = $('btnOut').disabled = true;
+  show('جاري التسجيل...', true);
+  const loc = await getLocation();
+  try {
+    const r = await fetch('/api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, pin, action, ...loc }) });
+    const d = await r.json();
+    if (r.ok) { show(d.message, true); $('pin').value = ''; try { localStorage.setItem('emp_code', code); } catch (e) {} }
+    else show(d.error, false);
+  } catch (e) { show('تعذر الاتصال بالخادم', false); }
+  $('btnIn').disabled = $('btnOut').disabled = false;
+}
+$('btnIn').onclick = () => punch('in');
+$('btnOut').onclick = () => punch('out');
+</script>
+</body>
+</html>
