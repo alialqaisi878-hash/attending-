@@ -79,6 +79,15 @@ db.exec(`
     note TEXT DEFAULT '',
     PRIMARY KEY (employee_id, month)
   );
+  CREATE TABLE IF NOT EXISTS changes (       -- سجل تغييرات الموظفين والرواتب
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    role TEXT NOT NULL,                      -- admin | accountant
+    employee_id INTEGER,
+    employee_name TEXT,
+    what TEXT NOT NULL,
+    old_value TEXT, new_value TEXT
+  );
 `);
 // ترقية قاعدة بيانات قديمة
 {
@@ -420,7 +429,12 @@ app.post('/api/punch', auth('employee'), (req, res) => {
 
 // ----- المدير -----
 const admin = auth('admin');
-const staff = auth(['admin', 'accountant']); // المدير أو المحاسب (قراءة الرواتب والتقارير والطباعة)
+const staff = auth(['admin', 'accountant']);
+const logChange = (role, emp, what, oldV, newV) => db.prepare('INSERT INTO changes(role, employee_id, employee_name, what, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)')
+  .run(role, emp ? emp.id : null, emp ? emp.name : null, what, oldV == null ? null : String(oldV), newV == null ? null : String(newV));
+app.get('/api/admin/changes', admin, (req, res) => {
+  res.json(db.prepare('SELECT * FROM changes ORDER BY id DESC LIMIT 200').all());
+}); // المدير أو المحاسب (قراءة الرواتب والتقارير والطباعة)
 app.post('/api/admin/login', (req, res) => {
   const user = String(req.body.username || '').trim();
   const pw = String(req.body.password || '');
@@ -466,6 +480,8 @@ app.post('/api/admin/employees', staff, (req, res) => {
       String(b.username).trim(), b.name.trim(), (b.department || '').trim(), (b.job_title || '').trim(), hashPassword(b.password),
       Number(b.salary || 0), b.shift_start || '08:00', b.shift_end || '16:00', b.overtime_after || '16:00',
       b.shift_id ? Number(b.shift_id) : null);
+    const created = db.prepare('SELECT * FROM employees WHERE username = ?').get(String(b.username).trim());
+    logChange(req.role, created, 'إضافة موظف', null, `الراتب ${Number(b.salary || 0)}`);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'اسم المستخدم مستخدم مسبقاً' });
@@ -486,6 +502,19 @@ app.put('/api/admin/employees/:id', staff, (req, res) => {
     merged.overtime_after, merged.shift_id ?? null, b.active === undefined ? emp.active : (b.active ? 1 : 0),
     b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
   if (b.reset_device && req.role !== 'admin') return res.status(403).json({ error: 'فك ربط الجهاز للمدير بس' });
+  {
+    const after = { ...merged, active: b.active === undefined ? emp.active : (b.active ? 1 : 0) };
+    const show = (k, v) => (k === 'active' ? (v ? 'فعّال' : 'موقوف') : k === 'shift_id' ? (v ? (db.prepare('SELECT name FROM shifts WHERE id = ?').get(v) || {}).name : 'وقت مخصص') : v);
+    const labels = { name: 'الاسم', department: 'القسم', job_title: 'العنوان الوظيفي', salary: 'الراتب', shift_id: 'الدوام',
+      shift_start: 'بداية الدوام', shift_end: 'نهاية الدوام', overtime_after: 'بداية الإضافي', active: 'الحالة' };
+    for (const [k, label] of Object.entries(labels)) {
+      if (['shift_start', 'shift_end', 'overtime_after'].includes(k) && after.shift_id) continue; // الأوقات من الدوام المختار
+      const o = emp[k] ?? null, n = after[k] ?? null;
+      if (String(o ?? '') !== String(n ?? '') && !(k === 'salary' && Number(o) === Number(n))) logChange(req.role, emp, label, show(k, o), show(k, n));
+    }
+    if (b.password) logChange(req.role, emp, 'الباسورد', null, 'تغيّر');
+    if (b.reset_device) logChange(req.role, emp, 'فك ربط الجهاز', null, null);
+  }
   if (b.reset_device) db.prepare('UPDATE employees SET device_id = NULL, device_at = NULL WHERE id = ?').run(emp.id);
   if (b.active === 0 || b.active === false || b.password || b.reset_device) {
     db.prepare("DELETE FROM sessions WHERE kind = 'employee' AND employee_id = ?").run(emp.id);
@@ -572,6 +601,12 @@ app.put('/api/admin/adjustments', staff, (req, res) => {
   if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
   if (!db.prepare('SELECT id FROM employees WHERE id = ?').get(Number(employee_id))) return res.status(400).json({ error: 'الموظف غير موجود' });
   if (!(Number(advance || 0) >= 0) || !(Number(bonus || 0) >= 0)) return res.status(400).json({ error: 'المبلغ غير صحيح' });
+  {
+    const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(employee_id));
+    const old = db.prepare('SELECT * FROM adjustments WHERE employee_id = ? AND month = ?').get(emp.id, month) || { advance: 0, bonus: 0 };
+    if (Number(old.bonus) !== Number(bonus || 0)) logChange(req.role, emp, `مكافأة ${month}`, old.bonus, Number(bonus || 0));
+    if (Number(old.advance) !== Number(advance || 0)) logChange(req.role, emp, `سلفة ${month}`, old.advance, Number(advance || 0));
+  }
   db.prepare(`INSERT INTO adjustments(employee_id, month, advance, bonus, note) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(employee_id, month) DO UPDATE SET advance = excluded.advance, bonus = excluded.bonus, note = excluded.note`)
     .run(Number(employee_id), month, Number(advance || 0), Number(bonus || 0), String(note || '').trim());

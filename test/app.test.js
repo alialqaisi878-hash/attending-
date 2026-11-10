@@ -169,6 +169,13 @@ test('accountant can read and print payroll but not change leaves, employees or 
   assert.ok((await post('/api/admin/employees', { username: 'x1', name: 'x', password: 'pass1234', salary: 500000 }, t)).ok);
   assert.ok((await put('/api/admin/employees/' + emp.id, { salary: emp.salary }, t)).ok);
   assert.equal((await put('/api/admin/employees/' + emp.id, { reset_device: true }, t)).status, 403);
+  assert.ok((await put('/api/admin/employees/' + emp.id, { salary: emp.salary + 1000 }, t)).ok);
+  assert.ok((await put('/api/admin/employees/' + emp.id, { department: 'المحاسبة' }, t)).ok);
+  assert.equal((await call('GET', '/api/admin/changes', null, t)).status, 401);
+  const log = await get('/api/admin/changes', adminToken);
+  assert.ok(log.some((c) => c.role === 'accountant' && c.what === 'القسم' && c.new_value === 'المحاسبة'));
+  assert.ok(log.some((c) => c.role === 'accountant' && c.what === 'إضافة موظف'));
+  assert.ok(log.some((c) => c.role === 'accountant' && c.what === 'الراتب' && Number(c.new_value) === emp.salary + 1000));
   assert.equal((await put('/api/admin/settings', { accountant_adjust: true }, t)).status, 401);
   assert.equal((await post('/api/admin/shifts', { name: 'x', start: '08:00', end: '15:00', overtime_after: '16:00' }, t)).status, 401);
   // admin turns off bonus/advance editing for the accountant

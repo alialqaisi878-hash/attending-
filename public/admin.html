@@ -127,7 +127,7 @@
         <label>تذكير ثاني إذا ما بصم بعد بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRL">
         <label>تذكير الانصراف بعد نهاية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRO">
         <h3>حساب المحاسب</h3>
-        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، ويضيف ويعدّل الموظفين. ما يگدر يغيّر الإجازات أو الغياب أو الإعدادات، ولا يفك ربط الجهاز.</p>
+        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، ويضيف ويعدّل الموظفين (وكل تعديل يطلع بسجل التغييرات). ما يگدر يغيّر الإجازات أو الغياب أو الإعدادات، ولا يفك ربط الجهاز.</p>
         <div class="row">
           <div><label>اسم المستخدم (اتركه فارغ حتى توقف الحساب)</label><input id="sAccUser" dir="ltr" autocapitalize="off" autocomplete="off"></div>
           <div><label>باسورد المحاسب <span class="muted" id="sAccHint"></span></label><input id="sAccPass" type="password" dir="ltr" autocomplete="new-password"></div>
@@ -135,6 +135,11 @@
         <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sAccAdjust" style="width:auto"> المحاسب يگدر يكتب المكافآت والسلف</label>
         <button style="width:100%;margin-top:14px" id="sSave">حفظ الإعدادات</button>
         <div class="msg" id="sMsg"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">سجل التغييرات</h3>
+        <p class="muted" style="margin-top:0">كل تعديل على الموظفين والمكافآت والسلف: منو سوّاه (المدير أو المحاسب)، شنو كان وصار شنو.</p>
+        <div class="table-wrap" style="max-height:420px;overflow:auto"><table id="changesTable"></table></div>
       </div>
       <div class="card">
         <h3 style="margin-top:0">الدوامات</h3>
@@ -380,6 +385,12 @@ async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
   $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sDeviceLock').checked = settings.device_lock === '1';
+  api('/api/admin/changes').then((list) => {
+    const fmt = (at) => new Date(at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { timeZone: 'Asia/Baghdad', dateStyle: 'short', timeStyle: 'short' });
+    $('changesTable').innerHTML = list.length ? '<tr><th>الوقت</th><th>منو</th><th>الموظف</th><th>التغيير</th><th>كان</th><th>صار</th></tr>' + list.map((c) =>
+      `<tr><td dir="ltr">${fmt(c.at)}</td><td>${c.role === 'accountant' ? '<b>المحاسب</b>' : 'المدير'}</td><td>${esc(c.employee_name)}</td><td>${esc(c.what)}</td><td>${esc(c.old_value ?? '')}</td><td>${esc(c.new_value ?? '')}</td></tr>`).join('')
+      : '<tr><td>ماكو تغييرات بعد</td></tr>';
+  }).catch(() => {});
   $('sAccUser').value = settings.accountant_user || ''; $('sAccPass').value = ''; $('sAccAdjust').checked = settings.accountant_adjust === '1';
   $('sAccHint').textContent = settings.accountant_has_password ? '(اتركه فارغ إذا ما تريد تغيّره)' : '';
   $('sRB').value = settings.remind_before; $('sRL').value = settings.remind_late; $('sRO').value = settings.remind_out_after;
