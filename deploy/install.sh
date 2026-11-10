@@ -29,7 +29,7 @@ echo "Traefik: $TRAEFIK | network: $NETWORK | resolver: $RESOLVER | entrypoints:
 
 # 3) الإعدادات (كلمة مرور المدير تتولد مرة وحدة وتنحفظ)
 if [ ! -f "$BASE/.env" ]; then
-  PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12)
+  PASS=$(openssl rand -hex 8 2>/dev/null || (set +o pipefail; tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16))
   printf 'DOMAIN=%s\nADMIN_PASSWORD=%s\n' "$DOMAIN" "$PASS" > "$BASE/.env"
   chmod 600 "$BASE/.env"
 else
