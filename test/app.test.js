@@ -45,26 +45,44 @@ test('location fence', async () => {
   await put('/api/admin/settings', { location_lat: '', location_lng: '' }, adminToken);
 });
 
-test('payroll with leaves and overtime', async () => {
+test('payroll follows the Excel model', async () => {
   const emp = db.prepare("SELECT id FROM employees WHERE username = 'ahmed'").get();
   const ins = db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, check_out) VALUES (?, ?, ?, ?)');
-  ins.run(emp.id, '2026-10-01', '08:00:00', '18:00:00'); // 2h overtime
+  ins.run(emp.id, '2026-10-01', '08:00:00', '18:00:00'); // 2h overtime after 16:00
   ins.run(emp.id, '2026-10-03', '08:30:00', null);       // 30 min late
+  ins.run(emp.id, '2026-10-06', '10:30:00', null);       // 150 min late
   assert.ok((await post('/api/admin/leaves', { employee_id: emp.id, from: '2026-10-04', paid: 1 }, adminToken)).ok);
   assert.ok((await post('/api/admin/leaves', { employee_id: emp.id, from: '2026-10-05', paid: 0, note: 'ظرف' }, adminToken)).ok);
-  const slip = await get(`/api/admin/payslip?employee_id=${emp.id}&month=2026-10`, adminToken);
-  const s = slip.summary;
-  // Oct 2026 has 5 Fridays -> 26 working days: 2 worked, 1 paid leave, 1 unpaid leave, 22 absent
-  assert.equal(s.present_days, 2); assert.equal(s.late_days, 1); assert.equal(s.late_minutes, 30);
-  assert.equal(s.paid_leave_days, 1); assert.equal(s.unpaid_leave_days, 1); assert.equal(s.absent_days, 22);
+  assert.ok((await put('/api/admin/adjustments', { employee_id: emp.id, month: '2026-10', advance: 20000, bonus: 5000 }, adminToken)).ok);
+  const s = (await get(`/api/admin/payslip?employee_id=${emp.id}&month=2026-10`, adminToken)).summary;
+  // defaults: daily = salary / 26, monthly late allowance 120 min, 5000/h late, 5000/h overtime
+  assert.equal(s.present_days, 3); assert.equal(s.paid_leave_days, 1); assert.equal(s.unpaid_leave_days, 1);
+  assert.equal(s.absent_days, 21);                 // 26 working days (5 Fridays) - 3 - 2
+  assert.equal(s.late_minutes, 180); assert.equal(s.late_after_allowance, 60);
   assert.equal(s.overtime_minutes, 120);
-  assert.equal(s.absence_deduction, 230000);   // (22 + 1) * 10000
-  assert.equal(s.overtime_pay, 3750);          // 2h * 1250 * 1.5
-  assert.equal(s.net_salary, 73750);
-  const leaves = await get('/api/admin/leaves?month=2026-10', adminToken);
-  assert.equal(leaves.length, 2);
+  assert.equal(s.attendance_pay, 46154);           // (3 + 1) * 300000 / 26
+  assert.equal(s.late_deduction, 5000);            // 60 min * 5000/h
+  assert.equal(s.overtime_pay, 10000);             // 2h * 5000
+  assert.equal(s.bonus, 5000); assert.equal(s.advance, 20000);
+  assert.equal(s.gross_salary, 56154); assert.equal(s.net_salary, 36154);
   const list = await get('/api/admin/payroll?month=2026-10', adminToken);
-  assert.equal(list.length, 2);
+  assert.equal(list.rows.length, 2); assert.equal(list.totals.net_salary, list.rows.reduce((a, r) => a + r.summary.net_salary, 0));
+  const csv = await (await call('GET', '/api/admin/payroll.csv?month=2026-10', null, adminToken)).text();
+  assert.match(csv, /صافي الراتب/); assert.match(csv, /المجموع/);
+});
+
+test('shifts and leave for all employees', async () => {
+  const shifts = await get('/api/admin/shifts', adminToken);
+  assert.equal(shifts.length, 2);
+  const early = shifts.find((x) => x.start === '07:00');
+  const emp = db.prepare("SELECT id FROM employees WHERE username = 'zainab'").get();
+  assert.ok((await put('/api/admin/employees/' + emp.id, { shift_id: early.id }, adminToken)).ok);
+  const list = await get('/api/admin/employees', adminToken);
+  const z = list.find((e) => e.id === emp.id);
+  assert.equal(z.shift_start, '07:00'); assert.equal(z.shift_name, '7:00 - 3:30');
+  assert.equal((await call('DELETE', '/api/admin/shifts/' + early.id, null, adminToken)).status, 400); // in use
+  const r = await (await post('/api/admin/leaves', { employee_id: 'all', from: '2026-10-20', to: '2026-10-21', paid: 1, note: 'عطلة رسمية' }, adminToken)).json();
+  assert.equal(r.employees, 2); assert.equal(r.count, 2);
 });
 
 test('csv and auth', async () => {

@@ -63,14 +63,17 @@
       <div class="grid2" style="margin-top:10px">
         <div>
           <div class="kv"><span>الراتب الأساسي</span><b id="pBase"></b></div>
-          <div class="kv"><span>خصم الغياب والإجازة بدون راتب</span><b id="pAbs" style="color:var(--red)"></b></div>
+          <div class="kv"><span>أجر أيام الحضور</span><b id="pAtt"></b></div>
+          <div class="kv"><span>خصم التأخير</span><b id="pLate" style="color:var(--red)"></b></div>
           <div class="kv"><span>أجر الأوفر تايم</span><b id="pOT" style="color:var(--green)"></b></div>
+          <div class="kv"><span>المكافأة / السلفة</span><b id="pAdj"></b></div>
           <div class="kv"><span>الصافي حتى اليوم</span><b class="net" id="pNet"></b></div>
         </div>
         <div>
           <div class="kv"><span>وقت الدوام</span><b id="pShift"></b></div>
           <div class="kv"><span>يبدي الأوفر تايم من</span><b id="pOTAfter"></b></div>
           <div class="kv"><span>أجر ساعة الأوفر تايم</span><b id="pOTRate"></b></div>
+          <div class="kv"><span>تأخيري هذا الشهر / المسموح</span><b id="pAllow"></b></div>
         </div>
       </div>
     </div>
@@ -185,10 +188,13 @@ async function loadHome() {
   $('locNote').textContent = d.location_required ? 'البصمة مسموحة بس داخل مكان العمل، ولازم تسمح للمتصفح يوصل لموقعك.' : '';
   $('sPresent').textContent = s.present_days; $('sLate').textContent = s.late_days; $('sAbsent').textContent = s.absent_days;
   $('sLeave').textContent = s.paid_leave_days; $('sUnpaid').textContent = s.unpaid_leave_days; $('sOT').textContent = hrs(s.overtime_minutes);
-  $('pBase').textContent = money(s.base_salary); $('pAbs').textContent = '- ' + money(s.absence_deduction);
+  $('pBase').textContent = money(s.base_salary); $('pAtt').textContent = money(s.attendance_pay);
+  $('pLate').textContent = '- ' + money(s.late_deduction);
   $('pOT').textContent = '+ ' + money(s.overtime_pay); $('pNet').textContent = money(s.net_salary);
-  $('pShift').textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $('pOTAfter').textContent = t5(e.overtime_after);
-  $('pOTRate').textContent = money(s.hourly_rate * e.overtime_rate);
+  $('pAdj').textContent = `+ ${money(s.bonus)} / - ${money(s.advance)}`;
+  $("pShift").textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $("pShift").dir = "ltr"; $('pOTAfter').textContent = t5(e.overtime_after);
+  $('pOTRate').textContent = money(s.overtime_hour_rate);
+  $('pAllow').textContent = `${s.late_minutes} د / ${s.late_allowance} د`;
   $('daysTable').innerHTML = '<tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>' +
     d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}${r.in_offline ? ' 📵' : ''}</td><td>${t5(r.check_out)}${r.out_offline ? ' 📵' : ''}</td><td>${badge(r.status)}</td>
       <td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');

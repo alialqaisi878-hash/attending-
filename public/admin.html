@@ -50,7 +50,7 @@
       <div class="card">
         <h3 style="margin-top:0">تسجيل إجازة</h3>
         <div class="row">
-          <div><label>الموظف</label><select id="lEmp" class="empSelect"></select></div>
+          <div><label>الموظف</label><select id="lEmp" class="empSelect" data-allstaff="1"></select></div>
           <div><label>من تاريخ</label><input type="date" id="lFrom"></div>
           <div><label>إلى تاريخ</label><input type="date" id="lTo"></div>
         </div>
@@ -70,9 +70,11 @@
 
     <!-- الرواتب -->
     <section id="tab-payroll" class="hidden">
-      <div class="card"><div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="pMonth"></div><div></div></div></div>
-      <div class="card"><div class="table-wrap"><table id="payTable"></table></div>
-        <p class="muted">الراتب اليومي = الراتب الشهري ÷ <span id="mdays">30</span>. أجر الساعة = الراتب اليومي ÷ ساعات الدوام. الأوفر تايم = الساعات × أجر الساعة × المضاعف.</p></div>
+      <div class="card"><div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="pMonth"></div>
+        <div><button class="secondary" id="pCsv" style="width:100%">تنزيل Excel (CSV)</button></div></div></div>
+      <div class="card"><h3 style="margin-top:0">ملخص رواتب الموظفين</h3><div class="table-wrap"><table id="payTable"></table></div>
+        <p class="muted" id="payRule"></p></div>
+      <div class="card narrow"><h3 style="margin-top:0">ملخص القيد المحاسبي</h3><div id="ledger"></div></div>
     </section>
 
     <!-- التقارير -->
@@ -105,8 +107,11 @@
         <p class="muted" id="locView"></p>
         <h3>عام</h3>
         <label>اسم الشركة (يطلع بفورمة الراتب)</label><input id="sCompany">
-        <label>فترة السماح قبل احتساب التأخير (دقائق)</label><input type="number" min="0" id="sGrace">
-        <label>عدد أيام الشهر لحساب الراتب اليومي</label><input type="number" min="1" max="31" id="sMonthDays">
+        <h3>الرواتب</h3>
+        <label>عدد أيام القسمة (اليومية = الراتب ÷ هذا الرقم)</label><input type="number" min="1" max="31" id="sMonthDays">
+        <label>سماحية التأخير الشهرية (دقيقة، توتل الشهر كله)</label><input type="number" min="0" id="sAllowance">
+        <label>سعر ساعة التأخير (دينار)</label><input type="number" min="0" id="sLateRate">
+        <label>سعر ساعة الإضافي (دينار)</label><input type="number" min="0" id="sOTRate">
         <label>أيام العطلة الأسبوعية</label>
         <div class="row" id="weekendBox"></div>
         <h3>التنبيهات</h3>
@@ -115,6 +120,19 @@
         <label>تذكير الانصراف بعد نهاية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRO">
         <button style="width:100%;margin-top:14px" id="sSave">حفظ الإعدادات</button>
         <div class="msg" id="sMsg"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">الدوامات</h3>
+        <p class="muted">سوّي دوام لكل وقت عندك، وبعدين اختار لكل موظف دوامه من صفحة الموظفين.</p>
+        <div class="table-wrap"><table id="shiftTable"></table></div>
+        <div class="row" style="align-items:end;margin-top:10px">
+          <div><label>اسم الدوام</label><input id="shName" placeholder="مثلاً 7:00 - 3:30"></div>
+          <div><label>البداية</label><input type="time" id="shStart" value="08:00"></div>
+          <div><label>النهاية</label><input type="time" id="shEnd" value="15:00"></div>
+          <div><label>يبدي الإضافي من</label><input type="time" id="shOT" value="16:00"></div>
+        </div>
+        <div class="row" style="margin-top:10px"><button id="shSave">إضافة دوام</button><button class="secondary hidden" id="shCancel">إلغاء التعديل</button></div>
+        <div class="msg" id="shMsg"></div>
       </div>
     </section>
   </div>
@@ -135,13 +153,11 @@
     <div><label>كلمة المرور <span class="muted" id="pwHint"></span></label><input id="fPass" dir="ltr"></div>
     <div><label>الراتب الشهري (دينار)</label><input type="number" min="0" id="fSalary"></div>
   </div>
-  <div class="row">
+  <label>الدوام</label><select id="fShift"></select>
+  <div class="row" id="customShift">
     <div><label>بداية الدوام</label><input type="time" id="fStart"></div>
     <div><label>نهاية الدوام</label><input type="time" id="fEnd"></div>
-  </div>
-  <div class="row">
-    <div><label>يبدي الأوفر تايم من الساعة</label><input type="time" id="fOT"></div>
-    <div><label>مضاعف أجر الأوفر تايم</label><input type="number" step="0.25" min="0" id="fRate"></div>
+    <div><label>يبدي الإضافي من</label><input type="time" id="fOT"></div>
   </div>
   <div class="row" style="margin-top:16px">
     <button id="fSave">حفظ</button><button class="secondary" id="fCancel">إلغاء</button>
@@ -152,7 +168,7 @@
 <script src="common.js"></script>
 <script>
 const api = makeApi('admin_token', logout);
-let employees = [], editId = null, settings = {};
+let employees = [], editId = null, settings = {}, shifts = [], editShift = null;
 const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
 function logout() { store.del('admin_token'); $('app').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logout').classList.add('hidden'); }
@@ -190,16 +206,16 @@ async function loadToday() {
 
 // ----- الموظفين -----
 async function loadEmployees() {
-  employees = await api('/api/admin/employees');
+  [employees, shifts] = await Promise.all([api('/api/admin/employees'), api('/api/admin/shifts')]);
   document.querySelectorAll('.empSelect').forEach((sel) => {
     const v = sel.value;
-    sel.innerHTML = (sel.dataset.all ? '<option value="">الكل</option>' : '') +
+    sel.innerHTML = (sel.dataset.all ? '<option value="">الكل</option>' : '') + (sel.dataset.allstaff ? '<option value="all">كل الموظفين</option>' : '') +
       employees.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
     if (v) sel.value = v;
   });
-  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الأوفر تايم من</th><th>الحالة</th><th></th></tr>' +
+  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الحالة</th><th></th></tr>' +
     employees.map((e) => `<tr><td>${esc(e.name)}</td><td dir="ltr">${esc(e.username)}</td><td>${esc(e.department)}</td><td>${money(e.salary)}</td>
-      <td>${e.shift_start} - ${e.shift_end}</td><td>${e.overtime_after} (×${e.overtime_rate})</td><td>${e.active ? 'فعّال' : 'موقوف'}</td>
+      <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td><td>${e.active ? 'فعّال' : 'موقوف'}</td>
       <td><button class="secondary small-btn" onclick="editEmp(${e.id})">تعديل</button>
       <button class="secondary small-btn" onclick="toggleEmp(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('');
 }
@@ -209,17 +225,20 @@ function openDlg(e) {
   $('fName').value = e?.name || ''; $('fUser').value = e?.username || ''; $('fUser').disabled = !!e;
   $('fDept').value = e?.department || ''; $('fJob').value = e?.job_title || ''; $('fPass').value = '';
   $('pwHint').textContent = e ? '(اتركها فارغة إذا ما تريد تغيّرها)' : '';
-  $('fSalary').value = e?.salary ?? ''; $('fStart').value = e?.shift_start || '08:00'; $('fEnd').value = e?.shift_end || '16:00';
-  $('fOT').value = e?.overtime_after || '16:00'; $('fRate').value = e?.overtime_rate ?? 1.5;
+  $('fSalary').value = e?.salary ?? ''; $('fStart').value = e?.shift_start || '08:00'; $('fEnd').value = e?.shift_end || '15:00';
+  $('fOT').value = e?.overtime_after || '16:00';
+  $('fShift').innerHTML = shifts.map((x) => `<option value="${x.id}">${esc(x.name)} (${x.start} - ${x.end})</option>`).join('') + '<option value="">وقت مخصص لهذا الموظف</option>';
+  $('fShift').value = e ? (e.shift_id || '') : (shifts[0]?.id || '');
+  $('customShift').classList.toggle('hidden', !!$('fShift').value);
   $('fMsg').className = 'msg'; $('empDlg').showModal();
 }
 $('addEmpBtn').onclick = () => openDlg(null);
 window.editEmp = (id) => openDlg(employees.find((e) => e.id === id));
 $('fCancel').onclick = () => $('empDlg').close();
-$('fEnd').onchange = () => { if (!editId) $('fOT').value = $('fEnd').value; };
+$('fShift').onchange = () => $('customShift').classList.toggle('hidden', !!$('fShift').value);
 $('fSave').onclick = async () => {
   const body = { name: $('fName').value, department: $('fDept').value, job_title: $('fJob').value, salary: $('fSalary').value || 0,
-    shift_start: $('fStart').value, shift_end: $('fEnd').value, overtime_after: $('fOT').value, overtime_rate: $('fRate').value };
+    shift_id: $('fShift').value || null, shift_start: $('fStart').value, shift_end: $('fEnd').value, overtime_after: $('fOT').value };
   if ($('fPass').value) body.password = $('fPass').value;
   try {
     if (editId) await api('/api/admin/employees/' + editId, { method: 'PUT', body: JSON.stringify(body) });
@@ -242,20 +261,44 @@ $('lFrom').onchange = () => { if (!$('lTo').value || $('lTo').value < $('lFrom')
 $('lAdd').onclick = async () => {
   try {
     const d = await api('/api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: $('lEmp').value, from: $('lFrom').value, to: $('lTo').value, paid: $('lPaid').value, note: $('lNote').value }) });
-    msg('lMsg', `تم تسجيل ${d.count} يوم إجازة`, true); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
+    msg('lMsg', `تم تسجيل ${d.count} يوم إجازة${d.employees > 1 ? ` لـ ${d.employees} موظف` : ''}`, true); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
   } catch (e) { msg('lMsg', e.message, false); }
 };
 window.delLeave = async (id) => { if (!confirm('حذف هذي الإجازة؟')) return; await api('/api/admin/leaves/' + id, { method: 'DELETE' }); loadLeaves(); };
 
 // ----- الرواتب -----
 async function loadPayroll() {
-  const list = await api('/api/admin/payroll?month=' + $('pMonth').value);
-  $('payTable').innerHTML = '<tr><th>الاسم</th><th>الراتب الأساسي</th><th>حضور</th><th>غياب</th><th>إجازة مدفوعة</th><th>بدون راتب</th><th>تأخير</th><th>أوفر تايم</th><th>الخصم</th><th>أجر الأوفر</th><th>الصافي</th><th></th></tr>' +
-    list.map(({ employee: e, summary: s }) => `<tr><td>${esc(e.name)}</td><td>${money(s.base_salary)}</td><td>${s.present_days}</td><td>${s.absent_days}</td>
-      <td>${s.paid_leave_days}</td><td>${s.unpaid_leave_days}</td><td>${s.late_minutes} د</td><td>${hrs(s.overtime_minutes)}</td>
-      <td style="color:var(--red)">${money(s.absence_deduction)}</td><td style="color:var(--green)">${money(s.overtime_pay)}</td><td><b>${money(s.net_salary)}</b></td>
-      <td><button class="secondary small-btn" onclick="printSlip(${e.id})">🖨️ الفورمة</button></td></tr>`).join('');
+  const { rows, totals } = await api('/api/admin/payroll?month=' + $('pMonth').value);
+  const red = (v) => `<span style="color:var(--red)">${money(v)}</span>`, green = (v) => `<span style="color:var(--green)">${money(v)}</span>`;
+  $('payTable').innerHTML = '<tr><th>الاسم</th><th>الراتب</th><th>الدوام</th><th>اليومية</th><th>حضور</th><th>غياب</th><th>إجازة مدفوعة</th><th>تأخير بعد السماحية</th><th>إضافي</th><th>راتب الحضور</th><th>خصم التأخير</th><th>مبلغ الإضافي</th><th>المكافآت</th><th>الإجمالي</th><th>السلف</th><th>الصافي</th><th></th></tr>' +
+    rows.map(({ employee: e, summary: s }) => `<tr><td>${esc(e.name)}</td><td>${money(s.base_salary)}</td><td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${money(s.daily_rate)}</td>
+      <td>${s.present_days}</td><td>${s.absent_days}</td><td>${s.paid_leave_days}</td><td>${s.late_after_allowance} د <span class="muted">(من ${s.late_minutes})</span></td><td>${hrs(s.overtime_minutes)}</td>
+      <td>${money(s.attendance_pay)}</td><td>${red(s.late_deduction)}</td><td>${green(s.overtime_pay)}</td>
+      <td><input type="number" min="0" class="adj" data-id="${e.id}" data-k="bonus" value="${s.bonus || ''}" placeholder="0" style="width:110px;padding:6px"></td>
+      <td>${money(s.gross_salary)}</td>
+      <td><input type="number" min="0" class="adj" data-id="${e.id}" data-k="advance" value="${s.advance || ''}" placeholder="0" style="width:110px;padding:6px"></td>
+      <td><b>${money(s.net_salary)}</b></td>
+      <td><button class="secondary small-btn" onclick="printSlip(${e.id})">🖨️ الفورمة</button></td></tr>`).join('') +
+    `<tr style="font-weight:700;background:#fafbfd"><td>المجموع</td><td>${money(totals.base_salary)}</td><td></td><td></td><td>${totals.present_days}</td><td>${totals.absent_days}</td><td>${totals.paid_leave_days}</td>
+      <td>${totals.late_after_allowance} د</td><td>${hrs(totals.overtime_minutes)}</td><td>${money(totals.attendance_pay)}</td><td>${red(totals.late_deduction)}</td><td>${green(totals.overtime_pay)}</td>
+      <td>${money(totals.bonus)}</td><td>${money(totals.gross_salary)}</td><td>${money(totals.advance)}</td><td>${money(totals.net_salary)}</td><td></td></tr>`;
+  document.querySelectorAll('.adj').forEach((inp) => inp.onchange = async () => {
+    const id = inp.dataset.id;
+    const val = (k) => document.querySelector(`.adj[data-id="${id}"][data-k="${k}"]`).value || 0;
+    try { await api('/api/admin/adjustments', { method: 'PUT', body: JSON.stringify({ employee_id: id, month: $('pMonth').value, bonus: val('bonus'), advance: val('advance') }) }); loadPayroll(); }
+    catch (e) { alert(e.message); }
+  });
+  const s0 = rows[0]?.summary;
+  if (s0) $('payRule').textContent = `اليومية = الراتب ÷ ${s0.month_days}. راتب الحضور = (أيام الحضور + الإجازة المدفوعة) × اليومية. التأخير: سماحية ${s0.late_allowance} دقيقة بالشهر، والزايد بسعر ${money(s0.late_hour_rate)} للساعة. الإضافي بسعر ${money(s0.overtime_hour_rate)} للساعة. المكافآت والسلف تكتبها بالجدول وتنحفظ وحدها.`;
+  const line = (l, v, b) => `<div class="kv"><span>${l}</span><b ${b ? 'class="net"' : ''}>${money(v)}</b></div>`;
+  $('ledger').innerHTML = line('راتب أيام الحضور', totals.attendance_pay) + line('(-) خصم التأخير', totals.late_deduction) + line('(+) مبلغ الإضافي', totals.overtime_pay) +
+    line('(+) المكافآت', totals.bonus) + line('إجمالي الرواتب المستحقة', totals.gross_salary) + line('(-) السلف المستقطعة', totals.advance) + line('صافي الرواتب المدفوعة', totals.net_salary, true);
 }
+$('pCsv').onclick = async () => {
+  const r = await fetch('/api/admin/payroll.csv?month=' + $('pMonth').value, { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  if (!r.ok) return alert('حدد الشهر');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `payroll_${$('pMonth').value}.csv`; a.click();
+};
 $('pMonth').onchange = loadPayroll;
 window.printSlip = (id) => window.open(`payslip.html?employee_id=${id}&month=${$('pMonth').value}`, '_blank');
 
@@ -286,11 +329,11 @@ function showLoc() {
 async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
-  $('sCompany').value = settings.company_name; $('sGrace').value = settings.grace_minutes; $('sMonthDays').value = settings.month_days;
+  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days;
   $('sRB').value = settings.remind_before; $('sRL').value = settings.remind_late; $('sRO').value = settings.remind_out_after;
   const wd = settings.weekend_days.split(',');
   document.querySelectorAll('.wd').forEach((c) => c.checked = wd.includes(c.value));
-  $('mdays').textContent = settings.month_days; showLoc();
+  showLoc(); loadShifts();
 }
 $('sLat').oninput = $('sLng').oninput = showLoc;
 $('useMyLoc').onclick = async () => {
@@ -305,10 +348,36 @@ $('sSave').onclick = async () => {
   try {
     await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
-      company_name: $('sCompany').value, grace_minutes: $('sGrace').value, month_days: $('sMonthDays').value, weekend_days,
+      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings();
   } catch (e) { msg('sMsg', e.message, false); }
+};
+
+// ----- الدوامات -----
+async function loadShifts() {
+  shifts = await api('/api/admin/shifts');
+  $('shiftTable').innerHTML = '<tr><th>الاسم</th><th>البداية</th><th>النهاية</th><th>الإضافي من</th><th>الموظفين</th><th></th></tr>' + shifts.map((x) =>
+    `<tr><td><bdi dir="ltr">${esc(x.name)}</bdi></td><td>${x.start}</td><td>${x.end}</td><td>${x.overtime_after}</td><td>${x.employees}</td>
+     <td><button class="secondary small-btn" onclick="editShiftRow(${x.id})">تعديل</button> <button class="secondary small-btn" onclick="delShift(${x.id})">حذف</button></td></tr>`).join('');
+}
+function resetShiftForm() { editShift = null; $('shName').value = ''; $('shSave').textContent = 'إضافة دوام'; $('shCancel').classList.add('hidden'); }
+window.editShiftRow = (id) => {
+  const x = shifts.find((y) => y.id === id); editShift = id;
+  $('shName').value = x.name; $('shStart').value = x.start; $('shEnd').value = x.end; $('shOT').value = x.overtime_after;
+  $('shSave').textContent = 'حفظ التعديل'; $('shCancel').classList.remove('hidden');
+};
+$('shCancel').onclick = resetShiftForm;
+$('shSave').onclick = async () => {
+  const body = JSON.stringify({ name: $('shName').value, start: $('shStart').value, end: $('shEnd').value, overtime_after: $('shOT').value });
+  try {
+    if (editShift) await api('/api/admin/shifts/' + editShift, { method: 'PUT', body }); else await api('/api/admin/shifts', { method: 'POST', body });
+    msg('shMsg', 'تم الحفظ', true); resetShiftForm(); loadShifts();
+  } catch (e) { msg('shMsg', e.message, false); }
+};
+window.delShift = async (id) => {
+  if (!confirm('حذف هذا الدوام؟')) return;
+  try { await api('/api/admin/shifts/' + id, { method: 'DELETE' }); loadShifts(); } catch (e) { msg('shMsg', e.message, false); }
 };
 
 function start() {

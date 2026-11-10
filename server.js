@@ -64,6 +64,21 @@ db.exec(`
     expires INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE IF NOT EXISTS shifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    start TEXT NOT NULL,
+    end TEXT NOT NULL,
+    overtime_after TEXT NOT NULL   -- يبدي الإضافي من هالساعة
+  );
+  CREATE TABLE IF NOT EXISTS adjustments (   -- السلف والمكافآت لكل موظف بكل شهر
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    month TEXT NOT NULL,
+    advance REAL NOT NULL DEFAULT 0,
+    bonus REAL NOT NULL DEFAULT 0,
+    note TEXT DEFAULT '',
+    PRIMARY KEY (employee_id, month)
+  );
 `);
 // ترقية قاعدة بيانات قديمة
 {
@@ -71,22 +86,35 @@ db.exec(`
   for (const [c, def] of [['in_offline', 'INTEGER NOT NULL DEFAULT 0'], ['in_synced_at', 'TEXT'], ['out_offline', 'INTEGER NOT NULL DEFAULT 0'], ['out_synced_at', 'TEXT']]) {
     if (!cols.includes(c)) db.exec(`ALTER TABLE attendance ADD COLUMN ${c} ${def}`);
   }
+  const ecols = db.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
+  if (!ecols.includes('shift_id')) db.exec('ALTER TABLE employees ADD COLUMN shift_id INTEGER REFERENCES shifts(id)');
+}
+if (!db.prepare('SELECT COUNT(*) AS c FROM shifts').get().c) {
+  db.prepare("INSERT INTO shifts(name, start, end, overtime_after) VALUES ('7:00 - 3:30', '07:00', '15:30', '16:00'), ('8:00 - 3:00', '08:00', '15:00', '16:00')").run();
 }
 const OFFLINE_MAX_DAYS = 7; // أقدم بصمة بدون نت مقبولة
 const DEFAULT_SETTINGS = {
   company_name: 'اسم الشركة',
-  grace_minutes: '10',
+  grace_minutes: '0',       // (قديم) ما يُستعمل، السماحية صارت شهرية
+  late_allowance: '120',    // سماحية التأخير الشهرية بالدقائق (توتل الشهر)
+  late_hour_rate: '5000',   // سعر ساعة التأخير (دينار)
+  overtime_hour_rate: '5000', // سعر ساعة الإضافي (دينار)
   weekend_days: '5',        // أيام العطلة الأسبوعية: 0=الأحد ... 5=الجمعة 6=السبت
   location_lat: '',
   location_lng: '',
   location_radius: '100',   // بالمتر
-  month_days: '30',         // الراتب اليومي = الراتب الشهري / هذا الرقم
+  month_days: '26',         // اليومية = الراتب الشهري / هذا الرقم
   remind_before: '10',      // تنبيه قبل بداية الدوام بكم دقيقة
   remind_late: '15',        // تنبيه ثاني إذا ما بصم بعد بداية الدوام بكم دقيقة
   remind_out_after: '10',   // تنبيه الانصراف بعد نهاية الدوام بكم دقيقة
 };
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)').run(k, v);
+}
+// ترقية لمرة وحدة لطريقة حساب ملف الإكسل
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'model_excel_v1'").get()) {
+  db.prepare("UPDATE settings SET value = '26' WHERE key = 'month_days' AND value = '30'").run();
+  db.prepare("INSERT INTO settings(key, value) VALUES ('model_excel_v1', '1')").run();
 }
 // مفاتيح الإشعارات (تتولد مرة وحدة وتنحفظ)
 if (!db.prepare("SELECT value FROM settings WHERE key = 'vapid_public'").get()) {
@@ -146,6 +174,7 @@ function monthRange(month) {
 
 // حساب يوم واحد لموظف
 function dayInfo(emp, date, rec, leave, s, today) {
+  emp = withShift(emp);
   const weekend = s.weekend_days.split(',').filter(Boolean).map(Number);
   const isWeekend = weekend.includes(new Date(date + 'T00:00:00Z').getUTCDay());
   const r = {
@@ -158,16 +187,14 @@ function dayInfo(emp, date, rec, leave, s, today) {
   if (r.check_in && r.check_out) r.worked_minutes = Math.max(0, toMin(r.check_out) - toMin(r.check_in));
   if (r.check_in) {
     if (isWeekend) {
-      r.status = 'دوام بالعطلة';
-      r.overtime_minutes = r.worked_minutes || 0; // كل دوام العطلة أوفر تايم
+      r.status = 'دوام بالعطلة'; // يوم حضور مدفوع، بدون تأخير
     } else {
-      const late = toMin(r.check_in) - toMin(emp.shift_start);
-      r.late_minutes = late > Number(s.grace_minutes) ? late : 0;
+      r.late_minutes = Math.max(0, toMin(r.check_in) - toMin(emp.shift_start));
       r.status = r.late_minutes ? 'متأخر' : 'حاضر';
-      if (r.check_out) {
-        const otStart = Math.max(toMin(emp.overtime_after), toMin(r.check_in));
-        r.overtime_minutes = Math.max(0, toMin(r.check_out) - otStart);
-      }
+    }
+    if (r.check_out) {
+      const otStart = Math.max(toMin(emp.overtime_after), toMin(r.check_in));
+      r.overtime_minutes = Math.max(0, toMin(r.check_out) - otStart);
     }
   } else if (leave) r.status = leave.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب';
   else if (isWeekend) r.status = 'عطلة';
@@ -187,42 +214,62 @@ function employeeDays(emp, from, to) {
   return datesBetween(from, to).map((d) => dayInfo(emp, d, recs.get(d), leaves.get(d), s, today));
 }
 
-// كشف الراتب الشهري
+// كشف الراتب الشهري (نفس طريقة ملف الإكسل)
+// اليومية = الراتب ÷ أيام القسمة
+// راتب أيام الحضور = (أيام الحضور + الإجازة المدفوعة) × اليومية
+// خصم التأخير = (مجموع التأخير − السماحية الشهرية) ÷ 60 × سعر ساعة التأخير
+// مبلغ الإضافي = دقائق الإضافي ÷ 60 × سعر ساعة الإضافي
+// الصافي = راتب الحضور − خصم التأخير + الإضافي + المكافآت − السلف
 function payroll(emp, month) {
   const s = getSettings();
   const { from, to } = monthRange(month);
   const days = employeeDays(emp, from, to);
-  const shiftMin = Math.max(1, toMin(emp.shift_end) - toMin(emp.shift_start));
-  const dailyRate = emp.salary / Number(s.month_days || 30);
-  const hourlyRate = dailyRate / (shiftMin / 60);
+  const adj = db.prepare('SELECT * FROM adjustments WHERE employee_id = ? AND month = ?').get(emp.id, month) || { advance: 0, bonus: 0, note: '' };
+  const dailyRate = emp.salary / Number(s.month_days || 26);
   const count = (st) => days.filter((d) => d.status === st).length;
-  const absent = count('غائب');
-  const unpaidLeave = count('إجازة بدون راتب');
+  const presentDays = count('حاضر') + count('متأخر') + count('دوام بالعطلة');
+  const paidLeave = count('إجازة مدفوعة');
   const overtimeMin = days.reduce((a, d) => a + d.overtime_minutes, 0);
   const lateMin = days.reduce((a, d) => a + d.late_minutes, 0);
-  const absenceDeduction = (absent + unpaidLeave) * dailyRate;
-  const overtimePay = (overtimeMin / 60) * hourlyRate * emp.overtime_rate;
+  const allowance = Number(s.late_allowance || 0);
+  const lateAfter = Math.max(0, lateMin - allowance);
+  const attendancePay = (presentDays + paidLeave) * dailyRate;
+  const lateDeduction = (lateAfter / 60) * Number(s.late_hour_rate || 0);
+  const overtimePay = (overtimeMin / 60) * Number(s.overtime_hour_rate || 0);
+  const gross = attendancePay - lateDeduction + overtimePay + Number(adj.bonus || 0);
   const round = (n) => Math.round(n);
   return {
     month, from, to, days,
     summary: {
-      present_days: count('حاضر') + count('متأخر') + count('دوام بالعطلة'),
-      late_days: count('متأخر'), late_minutes: lateMin,
-      absent_days: absent, paid_leave_days: count('إجازة مدفوعة'), unpaid_leave_days: unpaidLeave,
+      present_days: presentDays, late_days: count('متأخر'), late_minutes: lateMin,
+      late_allowance: allowance, late_after_allowance: lateAfter,
+      absent_days: count('غائب'), paid_leave_days: paidLeave, unpaid_leave_days: count('إجازة بدون راتب'),
       overtime_minutes: overtimeMin,
       worked_minutes: days.reduce((a, d) => a + (d.worked_minutes || 0), 0),
-      base_salary: round(emp.salary), daily_rate: round(dailyRate), hourly_rate: round(hourlyRate),
-      absence_deduction: round(absenceDeduction), overtime_pay: round(overtimePay),
-      net_salary: round(emp.salary - absenceDeduction + overtimePay),
+      base_salary: round(emp.salary), daily_rate: round(dailyRate), month_days: Number(s.month_days || 26),
+      late_hour_rate: Number(s.late_hour_rate || 0), overtime_hour_rate: Number(s.overtime_hour_rate || 0),
+      attendance_pay: round(attendancePay), late_deduction: round(lateDeduction), overtime_pay: round(overtimePay),
+      bonus: round(adj.bonus || 0), advance: round(adj.advance || 0), adjustment_note: adj.note || '',
+      gross_salary: round(gross), net_salary: round(gross - Number(adj.advance || 0)),
     },
   };
 }
 
-const publicEmp = (e) => ({
+// الدوام: إذا للموظف دوام مختار نأخذ أوقاته منه
+const shiftById = (id) => (id ? db.prepare('SELECT * FROM shifts WHERE id = ?').get(id) : null);
+function withShift(e) {
+  if (e._resolved) return e;
+  const sh = shiftById(e.shift_id);
+  return sh ? { ...e, shift_start: sh.start, shift_end: sh.end, overtime_after: sh.overtime_after, shift_name: sh.name, _resolved: true }
+    : { ...e, shift_name: `${e.shift_start} - ${e.shift_end}`, _resolved: true };
+}
+
+const publicEmp = (e0) => { const e = withShift(e0); return {
+  shift_id: e.shift_id || null, shift_name: e.shift_name,
   id: e.id, username: e.username, name: e.name, department: e.department, job_title: e.job_title,
   salary: e.salary, shift_start: e.shift_start, shift_end: e.shift_end,
-  overtime_after: e.overtime_after, overtime_rate: e.overtime_rate, active: e.active,
-});
+  overtime_after: e.overtime_after, active: e.active,
+}; };
 
 // ---------- الجلسات ----------
 function newSession(kind, employeeId) {
@@ -354,13 +401,13 @@ app.post('/api/admin/login', (req, res) => {
 });
 
 function validateEmployee(body, isNew) {
-  const { username, name, password, salary, shift_start, shift_end, overtime_after, overtime_rate } = body;
+  const { username, name, password, salary, shift_start, shift_end, overtime_after, shift_id } = body;
+  if (shift_id && !shiftById(Number(shift_id))) return 'الدوام غير موجود';
   if (isNew && (!username || !name || !password)) return 'اسم المستخدم والاسم وكلمة المرور مطلوبة';
   if (username !== undefined && !/^[A-Za-z0-9_.-]{2,30}$/.test(String(username))) return 'اسم المستخدم لازم يكون بالإنكليزي أو أرقام بدون فراغات';
   if (password && String(password).length < 4) return 'كلمة المرور لازم 4 أحرف على الأقل';
   for (const t of [shift_start, shift_end, overtime_after]) if (t !== undefined && !TIME_RE.test(t)) return 'صيغة الوقت غير صحيحة';
   if (salary !== undefined && !(Number(salary) >= 0)) return 'الراتب غير صحيح';
-  if (overtime_rate !== undefined && !(Number(overtime_rate) >= 0)) return 'مضاعف الأوفر تايم غير صحيح';
   const ss = shift_start, se = shift_end;
   if (ss && se && toMin(se) <= toMin(ss)) return 'نهاية الدوام لازم تكون بعد بدايته';
   return null;
@@ -374,11 +421,11 @@ app.post('/api/admin/employees', admin, (req, res) => {
   const err = validateEmployee(b, true);
   if (err) return res.status(400).json({ error: err });
   try {
-    db.prepare(`INSERT INTO employees(username, name, department, job_title, password_hash, salary, shift_start, shift_end, overtime_after, overtime_rate)
+    db.prepare(`INSERT INTO employees(username, name, department, job_title, password_hash, salary, shift_start, shift_end, overtime_after, shift_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       String(b.username).trim(), b.name.trim(), (b.department || '').trim(), (b.job_title || '').trim(), hashPassword(b.password),
-      Number(b.salary || 0), b.shift_start || '08:00', b.shift_end || '16:00', b.overtime_after || b.shift_end || '16:00',
-      Number(b.overtime_rate ?? 1.5));
+      Number(b.salary || 0), b.shift_start || '08:00', b.shift_end || '16:00', b.overtime_after || '16:00',
+      b.shift_id ? Number(b.shift_id) : null);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'اسم المستخدم مستخدم مسبقاً' });
@@ -390,12 +437,13 @@ app.put('/api/admin/employees/:id', admin, (req, res) => {
   const b = { ...req.body };
   delete b.username;
   const merged = { ...emp, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined && v !== '')) };
+  if ('shift_id' in b) merged.shift_id = b.shift_id ? Number(b.shift_id) : null;
   const err = validateEmployee({ ...b, shift_start: merged.shift_start, shift_end: merged.shift_end }, false);
   if (err) return res.status(400).json({ error: err });
   db.prepare(`UPDATE employees SET name = ?, department = ?, job_title = ?, salary = ?, shift_start = ?, shift_end = ?,
-    overtime_after = ?, overtime_rate = ?, active = ?, password_hash = ? WHERE id = ?`).run(
+    overtime_after = ?, shift_id = ?, active = ?, password_hash = ? WHERE id = ?`).run(
     merged.name, merged.department ?? '', merged.job_title ?? '', Number(merged.salary), merged.shift_start, merged.shift_end,
-    merged.overtime_after, Number(merged.overtime_rate), b.active === undefined ? emp.active : (b.active ? 1 : 0),
+    merged.overtime_after, merged.shift_id ?? null, b.active === undefined ? emp.active : (b.active ? 1 : 0),
     b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
   if (b.active === 0 || b.active === false || b.password) {
     db.prepare("DELETE FROM sessions WHERE kind = 'employee' AND employee_id = ?").run(emp.id);
@@ -445,10 +493,75 @@ app.get('/api/admin/report.csv', admin, (req, res) => {
 });
 
 // الرواتب
+function payrollList(month) {
+  const rows = activeEmployees().map((e) => ({ employee: publicEmp(e), summary: payroll(e, month).summary }));
+  const sum = (k) => rows.reduce((a, r) => a + (r.summary[k] || 0), 0);
+  const totals = Object.fromEntries(['base_salary', 'attendance_pay', 'late_deduction', 'overtime_pay', 'bonus', 'gross_salary', 'advance', 'net_salary',
+    'present_days', 'absent_days', 'paid_leave_days', 'late_after_allowance', 'overtime_minutes'].map((k) => [k, sum(k)]));
+  return { rows, totals };
+}
 app.get('/api/admin/payroll', admin, (req, res) => {
   const month = req.query.month;
   if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
-  res.json(activeEmployees().map((e) => ({ employee: publicEmp(e), summary: payroll(e, month).summary })));
+  res.json(payrollList(month));
+});
+app.get('/api/admin/payroll.csv', admin, (req, res) => {
+  const month = req.query.month;
+  if (!MONTH_RE.test(month || '')) return res.status(400).send('bad month');
+  const { rows, totals } = payrollList(month);
+  const head = ['اسم الموظف', 'القسم', 'الراتب الشهري', 'الدوام', 'اليومية', 'أيام الحضور', 'أيام الغياب', 'أيام الإجازة المدفوعة', 'إجازة بدون راتب',
+    'مجموع التأخير (دقيقة)', 'التأخير بعد السماحية (دقيقة)', 'الإضافي (دقيقة)', 'راتب أيام الحضور', 'خصم التأخير', 'مبلغ الإضافي', 'المكافآت',
+    'إجمالي الراتب المستحق (قبل السلف)', 'السلف (تُستقطع)', 'صافي الراتب (المبلغ المدفوع)', 'ملاحظات'];
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = rows.map(({ employee: e, summary: s }) => [e.name, e.department, s.base_salary, e.shift_name, s.daily_rate, s.present_days, s.absent_days,
+    s.paid_leave_days, s.unpaid_leave_days, s.late_minutes, s.late_after_allowance, s.overtime_minutes, s.attendance_pay, s.late_deduction,
+    s.overtime_pay, s.bonus, s.gross_salary, s.advance, s.net_salary, s.adjustment_note].map(esc).join(','));
+  lines.push(['المجموع', '', totals.base_salary, '', '', totals.present_days, totals.absent_days, totals.paid_leave_days, '', '', totals.late_after_allowance,
+    totals.overtime_minutes, totals.attendance_pay, totals.late_deduction, totals.overtime_pay, totals.bonus, totals.gross_salary, totals.advance, totals.net_salary, '']
+    .map(esc).join(','));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="payroll_${month}.csv"`);
+  res.send('\uFEFF' + [head.map(esc).join(','), ...lines].join('\n'));
+});
+// السلف والمكافآت
+app.put('/api/admin/adjustments', admin, (req, res) => {
+  const { employee_id, month, advance, bonus, note } = req.body;
+  if (!MONTH_RE.test(month || '')) return res.status(400).json({ error: 'حدد الشهر' });
+  if (!db.prepare('SELECT id FROM employees WHERE id = ?').get(Number(employee_id))) return res.status(400).json({ error: 'الموظف غير موجود' });
+  if (!(Number(advance || 0) >= 0) || !(Number(bonus || 0) >= 0)) return res.status(400).json({ error: 'المبلغ غير صحيح' });
+  db.prepare(`INSERT INTO adjustments(employee_id, month, advance, bonus, note) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(employee_id, month) DO UPDATE SET advance = excluded.advance, bonus = excluded.bonus, note = excluded.note`)
+    .run(Number(employee_id), month, Number(advance || 0), Number(bonus || 0), String(note || '').trim());
+  res.json({ ok: true });
+});
+// الدوامات
+const validShift = (b) => {
+  if (!String(b.name || '').trim()) return 'اكتب اسم الدوام';
+  for (const t of [b.start, b.end, b.overtime_after]) if (!TIME_RE.test(t || '')) return 'صيغة الوقت غير صحيحة';
+  if (toMin(b.end) <= toMin(b.start)) return 'نهاية الدوام لازم تكون بعد بدايته';
+  return null;
+};
+app.get('/api/admin/shifts', admin, (req, res) => {
+  res.json(db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM employees e WHERE e.shift_id = s.id AND e.active = 1) AS employees FROM shifts s ORDER BY start`).all());
+});
+app.post('/api/admin/shifts', admin, (req, res) => {
+  const err = validShift(req.body); if (err) return res.status(400).json({ error: err });
+  const b = req.body;
+  db.prepare('INSERT INTO shifts(name, start, end, overtime_after) VALUES (?, ?, ?, ?)').run(b.name.trim(), b.start, b.end, b.overtime_after);
+  res.json({ ok: true });
+});
+app.put('/api/admin/shifts/:id', admin, (req, res) => {
+  const err = validShift(req.body); if (err) return res.status(400).json({ error: err });
+  const b = req.body;
+  const r = db.prepare('UPDATE shifts SET name = ?, start = ?, end = ?, overtime_after = ? WHERE id = ?').run(b.name.trim(), b.start, b.end, b.overtime_after, Number(req.params.id));
+  if (!r.changes) return res.status(404).json({ error: 'الدوام غير موجود' });
+  res.json({ ok: true });
+});
+app.delete('/api/admin/shifts/:id', admin, (req, res) => {
+  const used = db.prepare('SELECT COUNT(*) AS c FROM employees WHERE shift_id = ?').get(Number(req.params.id)).c;
+  if (used) return res.status(400).json({ error: `الدوام مستعمل لـ ${used} موظف، غيّر دوامهم أول` });
+  db.prepare('DELETE FROM shifts WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
 });
 app.get('/api/admin/payslip', admin, (req, res) => {
   const { month, employee_id } = req.query;
@@ -470,12 +583,13 @@ app.post('/api/admin/leaves', admin, (req, res) => {
   const paid = req.body.paid === false || req.body.paid === 0 || req.body.paid === '0' ? 0 : 1;
   const end = to || from;
   if (!DATE_RE.test(from || '') || !DATE_RE.test(end) || from > end) return res.status(400).json({ error: 'حدد التاريخ' });
-  if (!db.prepare('SELECT id FROM employees WHERE id = ?').get(Number(employee_id))) return res.status(400).json({ error: 'اختار الموظف' });
+  const ids = employee_id === 'all' ? activeEmployees().map((e) => e.id) : [Number(employee_id)];
+  if (employee_id !== 'all' && !db.prepare('SELECT id FROM employees WHERE id = ?').get(ids[0])) return res.status(400).json({ error: 'اختار الموظف' });
   const days = datesBetween(from, end);
   if (days.length > 60) return res.status(400).json({ error: 'الفترة طويلة جداً' });
   const ins = db.prepare('INSERT OR REPLACE INTO leaves(employee_id, leave_date, note, paid) VALUES (?, ?, ?, ?)');
-  for (const d of days) ins.run(Number(employee_id), d, (note || '').trim(), paid);
-  res.json({ ok: true, count: days.length });
+  for (const id of ids) for (const d of days) ins.run(id, d, (note || '').trim(), paid);
+  res.json({ ok: true, count: days.length, employees: ids.length });
 });
 app.delete('/api/admin/leaves/:id', admin, (req, res) => {
   db.prepare('DELETE FROM leaves WHERE id = ?').run(Number(req.params.id));
@@ -490,9 +604,10 @@ app.put('/api/admin/settings', admin, (req, res) => {
   const b = req.body;
   const s = { ...getSettings() };
   if (b.company_name !== undefined) s.company_name = String(b.company_name).trim();
-  if (b.grace_minutes !== undefined) {
-    if (!(Number(b.grace_minutes) >= 0)) return res.status(400).json({ error: 'فترة السماح غير صحيحة' });
-    s.grace_minutes = String(Number(b.grace_minutes));
+  for (const [k, label] of [['late_allowance', 'السماحية الشهرية'], ['late_hour_rate', 'سعر ساعة التأخير'], ['overtime_hour_rate', 'سعر ساعة الإضافي']]) {
+    if (b[k] === undefined) continue;
+    if (!(Number(b[k]) >= 0)) return res.status(400).json({ error: `${label} غير صحيح` });
+    s[k] = String(Number(b[k]));
   }
   if (b.weekend_days !== undefined) {
     if (!/^([0-6](,[0-6])*)?$/.test(b.weekend_days)) return res.status(400).json({ error: 'أيام العطلة غير صحيحة' });
@@ -562,7 +677,8 @@ async function reminderTick() {
     AND EXISTS (SELECT 1 FROM push_subs p WHERE p.employee_id = e.id)
     AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.employee_id = e.id AND l.leave_date = ?)`).all(date);
   const logged = db.prepare('INSERT OR IGNORE INTO notif_log(employee_id, work_date, kind) VALUES (?, ?, ?)');
-  for (const e of emps) {
+  for (const e0 of emps) {
+    const e = withShift(e0);
     const rec = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?').get(e.id, date);
     const start = toMin(e.shift_start), end = toMin(e.shift_end);
     const jobs = [];

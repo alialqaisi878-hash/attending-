@@ -55,8 +55,8 @@ const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربع�
         <div><span>اسم الموظف</span><b>${esc(e.name)}</b></div>
         <div><span>العنوان الوظيفي</span><b>${esc(e.job_title) || '—'}</b></div>
         <div><span>القسم</span><b>${esc(e.department) || '—'}</b></div>
-        <div><span>وقت الدوام</span><b>${e.shift_start} - ${e.shift_end}</b></div>
-        <div><span>يبدي الأوفر تايم من</span><b>${e.overtime_after} (×${e.overtime_rate})</b></div>
+        <div><span>وقت الدوام</span><b dir="ltr">${e.shift_start} - ${e.shift_end}</b></div>
+        <div><span>يبدي الأوفر تايم من</span><b>${e.overtime_after} (${money(s.overtime_hour_rate)} للساعة)</b></div>
         <div><span>الفترة</span><b>${d.from} إلى ${d.to}</b></div>
       </div>
 
@@ -67,9 +67,13 @@ const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربع�
       <h3>تفاصيل الراتب</h3>
       <table class="money">
         <tr><td>الراتب الأساسي</td><td>${money(s.base_salary)}</td></tr>
-        <tr><td>الراتب اليومي / أجر الساعة</td><td>${money(s.daily_rate)} / ${money(s.hourly_rate)}</td></tr>
-        <tr><td>خصم الغياب والإجازة بدون راتب (${s.absent_days + s.unpaid_leave_days} يوم)</td><td>- ${money(s.absence_deduction)}</td></tr>
-        <tr><td>أجر الأوفر تايم (${hrs(s.overtime_minutes)})</td><td>+ ${money(s.overtime_pay)}</td></tr>
+        <tr><td>أجر اليوم (الراتب ÷ ${s.month_days})</td><td>${money(s.daily_rate)}</td></tr>
+        <tr><td>أجر أيام الحضور (${s.present_days + s.paid_leave_days} يوم مع الإجازة المدفوعة)</td><td>${money(s.attendance_pay)}</td></tr>
+        <tr><td>خصم التأخير (${s.late_minutes} د - مسموح ${s.late_allowance} د = ${s.late_after_allowance} د × ${money(s.late_hour_rate)} للساعة)</td><td>- ${money(s.late_deduction)}</td></tr>
+        <tr><td>أجر الأوفر تايم (${hrs(s.overtime_minutes)} × ${money(s.overtime_hour_rate)} للساعة)</td><td>+ ${money(s.overtime_pay)}</td></tr>
+        <tr><td>مكافأة</td><td>+ ${money(s.bonus)}</td></tr>
+        <tr><td>إجمالي الراتب</td><td>${money(s.gross_salary)}</td></tr>
+        <tr><td>سلفة${s.adjustment_note ? ' (' + esc(s.adjustment_note) + ')' : ''}</td><td>- ${money(s.advance)}</td></tr>
         <tr class="net"><td>صافي الراتب المستحق</td><td>${money(s.net_salary)}</td></tr>
       </table>
 
