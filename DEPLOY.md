@@ -17,3 +17,16 @@
 4. الموظف يفتح الرابط من موبايله، يدخل، يضغط "تفعيل التنبيهات"، ويسمح بالموقع.
    - آيفون: من Safari ← زر المشاركة ← "إضافة إلى الشاشة الرئيسية"، ويفتحه من الأيقونة.
    - أندرويد: من Chrome ← القائمة ← "إضافة إلى الشاشة الرئيسية".
+
+---
+
+# النشر على سيرفر VPS فيه Traefik (مثل Hostinger مع n8n)
+
+1. بلوحة DNS مال الدومين ضيف سجل `A` للرابط الفرعي (مثلاً `hudoor`) يأشر على IP السيرفر.
+2. افتح الـ Terminal مال السيرفر وشغّل (بدّل الدومين بدومينك):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/alialqaisi878-hash/attending-/main/deploy/install.sh -o /root/install-attendance.sh && bash /root/install-attendance.sh hudoor.example.com
+   ```
+3. بالنهاية يطبعلك الرابط وكلمة مرور المدير.
+
+للتحديث بعدين: `bash /root/install-attendance.sh` (البيانات محفوظة بـ `/root/attendance-app/data`).
