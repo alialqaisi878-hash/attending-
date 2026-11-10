@@ -15,6 +15,9 @@ mkdir -p "$BASE/data"
 
 # 1) الكود
 if [ -d "$BASE/src/.git" ]; then git -C "$BASE/src" pull --ff-only; else git clone --depth 1 "$REPO" "$BASE/src"; fi
+# نحدّث نسخة هذا السكربت نفسه للمرة الجاية
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+if [ -f "$BASE/src/deploy/install.sh" ] && [ "$SELF" != "$(readlink -f "$BASE/src/deploy/install.sh")" ]; then cp "$BASE/src/deploy/install.sh" "$SELF" 2>/dev/null || true; fi
 
 # 2) نتعرف على Traefik الموجود
 TRAEFIK=$(docker ps --format '{{.Names}} {{.Image}}' | awk '$2 ~ /traefik/ {print $1; exit}')
@@ -28,7 +31,9 @@ RESOLVER=${RESOLVER:-mytlschallenge}; WEB_EP=${WEB_EP:-web}; SECURE_EP=${SECURE_
 echo "Traefik: $TRAEFIK | network: $NETWORK | resolver: $RESOLVER | entrypoints: $WEB_EP / $SECURE_EP"
 
 # 3) الإعدادات (كلمة مرور المدير تتولد مرة وحدة وتنحفظ)
+FIRST_INSTALL=0
 if [ ! -f "$BASE/.env" ]; then
+  FIRST_INSTALL=1
   PASS=$(openssl rand -hex 8 2>/dev/null || (set +o pipefail; tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16))
   printf 'DOMAIN=%s\nADMIN_PASSWORD=%s\n' "$DOMAIN" "$PASS" > "$BASE/.env"
   chmod 600 "$BASE/.env"
@@ -69,14 +74,29 @@ YML
 
 # 4) التشغيل
 cd "$BASE"
-docker compose up -d --build
-sleep 3
+# نبني الصورة أول وبعدين نشغّل، ونتأكد إن البرنامج اشتغل فعلاً (حتى لو انقطع الاتصال بالنص)
+docker compose build
+for i in 1 2 3; do
+  docker compose up -d
+  sleep 4
+  STATE=$(docker inspect -f '{{.State.Status}}' attendance-app 2>/dev/null || echo missing)
+  [ "$STATE" = "running" ] && break
+  echo "البرنامج بعده ما اشتغل ($STATE)، نحاول مرة ثانية..."
+  docker start attendance-app >/dev/null 2>&1 || true
+done
 docker ps --filter name=attendance-app --format '{{.Names}}: {{.Status}}'
+if [ "$(docker inspect -f '{{.State.Status}}' attendance-app 2>/dev/null)" != "running" ]; then
+  echo "!! البرنامج ما اشتغل. هذا آخر السجل:"; docker logs --tail 40 attendance-app 2>&1 || true; exit 1
+fi
 
 echo
 echo "=============================================="
 echo " البرنامج:      https://$DOMAIN"
 echo " لوحة المدير:   https://$DOMAIN/admin.html"
-echo " كلمة مرور المدير: $(grep '^ADMIN_PASSWORD=' "$BASE/.env" | cut -d= -f2-)"
-echo " (تكدر تغيرها من الملف $BASE/.env ثم تعيد تشغيل هذا الأمر)"
+if [ "$FIRST_INSTALL" = 1 ]; then
+  echo " كلمة مرور المدير: $(grep '^ADMIN_PASSWORD=' "$BASE/.env" | cut -d= -f2-)"
+  echo " (تكدر تغيرها من الملف $BASE/.env ثم تعيد تشغيل هذا الأمر)"
+else
+  echo " تم التحديث. البيانات وكلمة مرور المدير ما تغيرت."
+fi
 echo "=============================================="
