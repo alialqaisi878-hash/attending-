@@ -55,16 +55,20 @@
           <div><label>إلى تاريخ</label><input type="date" id="lTo"></div>
         </div>
         <div class="row">
-          <div><label>نوع الإجازة</label><select id="lPaid"><option value="1">مدفوعة (بدون خصم)</option><option value="0">بقطع راتب (تنخصم)</option></select></div>
+          <select id="lPaid" class="hidden"><option value="1">مدفوعة</option></select>
           <div><label>ملاحظة</label><input id="lNote" placeholder="مثلاً: مرضية، ظرف عائلي"></div>
         </div>
         <button style="margin-top:12px" id="lAdd">حفظ الإجازة</button>
         <div class="msg" id="lMsg"></div>
-        <p class="muted">أي يوم دوام ما بيه بصمة وما مسجّلة له إجازة يُحسب غياب وينخصم من الراتب.</p>
+        <p class="muted">الإجازة هنا مدفوعة (ما تنخصم). أي يوم دوام ما بيه بصمة وما مسجّلة له إجازة يُحسب غياب وينخصم من الراتب.</p>
       </div>
       <div class="card">
         <div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="lMonth"></div><div></div></div>
-        <div class="table-wrap" style="margin-top:10px"><table id="leaveTable"></table></div>
+        <h3>أيام الغياب</h3>
+        <p class="muted" style="margin-top:0">اضغط «إجازة مدفوعة» جنب اليوم حتى ما ينخصم.</p>
+        <div class="table-wrap"><table id="absentTable"></table></div>
+        <h3>الإجازات المسجّلة</h3>
+        <div class="table-wrap"><table id="leaveTable"></table></div>
       </div>
     </section>
 
@@ -211,8 +215,9 @@ async function loadEmployees() {
   [employees, shifts] = await Promise.all([api('/api/admin/employees'), api('/api/admin/shifts')]);
   document.querySelectorAll('.empSelect').forEach((sel) => {
     const v = sel.value;
-    sel.innerHTML = (sel.dataset.all ? '<option value="">الكل</option>' : '') + (sel.dataset.allstaff ? '<option value="all">كل الموظفين</option>' : '') +
-      employees.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+    sel.innerHTML = (sel.dataset.all ? '<option value="">الكل</option>' : '') +
+      employees.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('') +
+      (sel.dataset.allstaff ? '<option value="all">كل الموظفين (عطلة للكل)</option>' : '');
     if (v) sel.value = v;
   });
   $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
@@ -260,11 +265,37 @@ window.toggleEmp = async (id, active) => { await api('/api/admin/employees/' + i
 // ----- الإجازات -----
 async function loadLeaves() {
   if (!employees.length) await loadEmployees();
-  const list = await api('/api/admin/leaves?month=' + $('lMonth').value);
+  const month = $('lMonth').value;
+  const [list, abs] = await Promise.all([api('/api/admin/leaves?month=' + month), loadAbsent(month)]);
+  $('absentTable').innerHTML = abs.length ? '<tr><th>الموظف</th><th>أيام الغياب</th></tr>' + groupBy(abs).map(([id, rows]) =>
+    `<tr><td>${esc(rows[0].name)}${rows.length > 1 ? `<br><button class="secondary small-btn" style="margin-top:6px" onclick="paidLeave(${id}, '${rows.map((r) => r.work_date).join(',')}')">كلها إجازة مدفوعة (${rows.length})</button>` : ''}</td>
+     <td>${rows.map((r) => `<span style="display:inline-flex;gap:6px;align-items:center;margin:3px 0 3px 12px">${r.work_date.slice(5)} ${DAYS[new Date(r.work_date + 'T00:00:00Z').getUTCDay()]}
+       <button class="small-btn" onclick="paidLeave(${id}, '${r.work_date}')">إجازة مدفوعة</button></span>`).join('')}</td></tr>`).join('')
+    : '<tr><td>ما كو غياب بهذا الشهر 👍</td></tr>';
   $('leaveTable').innerHTML = list.length ? '<tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>ملاحظة</th><th></th></tr>' + list.map((l) =>
     `<tr><td>${l.leave_date}</td><td>${esc(l.name)}</td><td>${badge(l.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب')}</td><td>${esc(l.note)}</td>
-     <td><button class="secondary small-btn" onclick="delLeave(${l.id})">حذف</button></td></tr>`).join('') : '<tr><td>ما كو إجازات بهذا الشهر</td></tr>';
+     <td><button class="secondary small-btn" onclick="delLeave(${l.id})">تراجع</button></td></tr>`).join('') : '<tr><td>ما كو إجازات بهذا الشهر</td></tr>';
 }
+async function loadAbsent(month) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+  const from = month + '-01';
+  const [y, m] = month.split('-').map(Number);
+  let to = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+  if (to > today) to = today;
+  if (from > to) return [];
+  return (await api(`/api/admin/report?from=${from}&to=${to}`)).filter((r) => r.status === 'غائب');
+}
+function groupBy(rows) {
+  const g = new Map();
+  for (const r of rows) { if (!g.has(r.employee_id)) g.set(r.employee_id, []); g.get(r.employee_id).push(r); }
+  return [...g.entries()];
+}
+window.paidLeave = async (id, dates) => {
+  try {
+    for (const d of dates.split(',')) await api('/api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: id, from: d, to: d, paid: 1, note: '' }) });
+    loadLeaves();
+  } catch (e) { alert(e.message); }
+};
 $('lMonth').onchange = loadLeaves;
 $('lFrom').onchange = () => { if (!$('lTo').value || $('lTo').value < $('lFrom').value) $('lTo').value = $('lFrom').value; };
 $('lAdd').onclick = async () => {
@@ -273,7 +304,7 @@ $('lAdd').onclick = async () => {
     msg('lMsg', `تم تسجيل ${d.count} يوم إجازة${d.employees > 1 ? ` لـ ${d.employees} موظف` : ''}`, true); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
   } catch (e) { msg('lMsg', e.message, false); }
 };
-window.delLeave = async (id) => { if (!confirm('حذف هذي الإجازة؟')) return; await api('/api/admin/leaves/' + id, { method: 'DELETE' }); loadLeaves(); };
+window.delLeave = async (id) => { if (!confirm('تلغي هذي الإجازة؟ اليوم يرجع غياب إذا ما بيه بصمة.')) return; await api('/api/admin/leaves/' + id, { method: 'DELETE' }); loadLeaves(); };
 
 // ----- الرواتب -----
 async function loadPayroll() {
