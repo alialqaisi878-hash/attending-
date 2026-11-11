@@ -188,4 +188,22 @@ test('accountant can read and print payroll but not change leaves, employees or 
   assert.ok((await post('/api/admin/login', { password: 'secret' })).ok);
 });
 
+test('reset clears test data but keeps employees and settings', async () => {
+  const before = (await get('/api/admin/employees', adminToken)).length;
+  assert.ok(before > 0);
+  assert.equal((await post('/api/admin/reset', { confirm: 'نعم' }, adminToken)).status, 400);
+  const acc = (await (await post('/api/admin/login', { username: 'acc', password: 'new12345' })).json()).token;
+  assert.equal((await post('/api/admin/reset', { confirm: 'تصفير' }, acc)).status, 401);
+  const r = await (await post('/api/admin/reset', { confirm: 'تصفير', unbind_devices: true }, adminToken)).json();
+  assert.ok(r.ok); assert.ok(r.attendance > 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM attendance').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM leaves').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM adjustments').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM employees WHERE device_id IS NOT NULL').get().n, 0);
+  const emps = await get('/api/admin/employees', adminToken);
+  assert.equal(emps.length, before);
+  assert.ok(emps.every((e) => e.salary !== undefined));
+  assert.equal((await get('/api/admin/changes', adminToken)).length, 1); // only the reset itself
+});
+
 test('reminder tick runs', async () => { await reminderTick(); });

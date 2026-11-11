@@ -432,6 +432,33 @@ const admin = auth('admin');
 const staff = auth(['admin', 'accountant']);
 const logChange = (role, emp, what, oldV, newV) => db.prepare('INSERT INTO changes(role, employee_id, employee_name, what, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)')
   .run(role, emp ? emp.id : null, emp ? emp.name : null, what, oldV == null ? null : String(oldV), newV == null ? null : String(newV));
+// تصفير بيانات التجربة: يمسح البصمات والإجازات والسلف والمكافآت ويخلي الموظفين والإعدادات. ياخذ نسخة احتياطية قبلها.
+app.post('/api/admin/reset', admin, (req, res) => {
+  const b = req.body || {};
+  if (String(b.confirm || '').trim() !== 'تصفير') return res.status(400).json({ error: 'اكتب كلمة «تصفير» حتى نتأكد' });
+  let backup = null;
+  if (DB_PATH !== ':memory:') {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    backup = path.join(path.dirname(DB_PATH), `backup-before-reset-${stamp}.db`);
+    db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+  }
+  const counts = {
+    attendance: db.prepare('SELECT COUNT(*) n FROM attendance').get().n,
+    leaves: db.prepare('SELECT COUNT(*) n FROM leaves').get().n,
+    adjustments: db.prepare('SELECT COUNT(*) n FROM adjustments').get().n,
+  };
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM attendance; DELETE FROM leaves; DELETE FROM adjustments; DELETE FROM changes; DELETE FROM notif_log;');
+    if (b.unbind_devices) {
+      db.exec("UPDATE employees SET device_id = NULL, device_at = NULL; DELETE FROM sessions WHERE kind = 'employee';");
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  logChange('admin', null, 'تصفير بيانات التجربة', null,
+    `بصمات ${counts.attendance}، إجازات ${counts.leaves}، سلف/مكافآت ${counts.adjustments}${b.unbind_devices ? '، وفك ربط كل الأجهزة' : ''}`);
+  res.json({ ok: true, ...counts, backup: backup ? path.basename(backup) : null });
+});
 app.get('/api/admin/changes', admin, (req, res) => {
   res.json(db.prepare('SELECT * FROM changes ORDER BY id DESC LIMIT 200').all());
 }); // المدير أو المحاسب (قراءة الرواتب والتقارير والطباعة)

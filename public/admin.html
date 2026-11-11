@@ -136,6 +136,14 @@
         <button style="width:100%;margin-top:14px" id="sSave">حفظ الإعدادات</button>
         <div class="msg" id="sMsg"></div>
       </div>
+      <div class="card" style="border:1px solid var(--red)">
+        <h3 style="margin-top:0;color:var(--red)">تصفير بيانات التجربة</h3>
+        <p class="muted" style="margin-top:0">استعمله مرة وحدة قبل ما تبدي تعتمد البرنامج. يمسح كل البصمات والإجازات والسلف والمكافآت وسجل التغييرات. الموظفين ورواتبهم ودواماتهم والإعدادات تبقى مثل ما هي. قبل المسح تنحفظ نسخة احتياطية بالسيرفر.</p>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rsUnbind" style="width:auto"> فك ربط كل التلفونات هم (إذا جرّبتوا من تلفونات غير تلفونات الموظفين)</label>
+        <label>اكتب كلمة <b>تصفير</b> حتى نتأكد</label><input id="rsConfirm" autocomplete="off">
+        <button style="width:100%;margin-top:12px;background:var(--red)" id="rsBtn">تصفير البيانات</button>
+        <div class="msg" id="rsMsg"></div>
+      </div>
       <div class="card">
         <h3 style="margin-top:0">سجل التغييرات</h3>
         <p class="muted" style="margin-top:0">كل تعديل على الموظفين والمكافآت والسلف: منو سوّاه (المدير أو المحاسب)، شنو كان وصار شنو.</p>
@@ -405,6 +413,15 @@ $('useMyLoc').onclick = async () => {
   if (l.lat == null) return msg('sMsg', 'تعذر تحديد الموقع. اسمح للمتصفح بالوصول للموقع.', false);
   $('sLat').value = l.lat.toFixed(6); $('sLng').value = l.lng.toFixed(6); showLoc();
   msg('sMsg', `تم أخذ الموقع (الدقة تقريباً ${Math.round(l.accuracy)} متر). اضغط حفظ.`, true);
+};
+$('rsBtn').onclick = async () => {
+  if ($('rsConfirm').value.trim() !== 'تصفير') return msg('rsMsg', 'اكتب كلمة «تصفير» بالمربع', false);
+  if (!confirm('أكيد تريد تمسح كل البصمات والإجازات والسلف والمكافآت؟')) return;
+  try {
+    const d = await api('/api/admin/reset', { method: 'POST', body: JSON.stringify({ confirm: $('rsConfirm').value, unbind_devices: $('rsUnbind').checked }) });
+    msg('rsMsg', `تم التصفير: انمسحت ${d.attendance} بصمة و ${d.leaves} إجازة و ${d.adjustments} سلفة/مكافأة.${d.backup ? ' النسخة الاحتياطية: ' + d.backup : ''}`, true);
+    $('rsConfirm').value = ''; $('rsUnbind').checked = false; loadSettings(); loadEmployees().catch(() => {});
+  } catch (e) { msg('rsMsg', e.message, false); }
 };
 $('sSave').onclick = async () => {
   const weekend_days = [...document.querySelectorAll('.wd')].filter((c) => c.checked).map((c) => c.value).join(',');
