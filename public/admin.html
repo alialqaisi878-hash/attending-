@@ -62,7 +62,7 @@
         </div>
         <button style="margin-top:12px" id="lAdd">حفظ الإجازة</button>
         <div class="msg" id="lMsg"></div>
-        <p class="muted">الإجازة هنا مدفوعة (ما تنخصم). أي يوم دوام ما بيه بصمة وما مسجّلة له إجازة يُحسب غياب وينخصم من الراتب.</p>
+        <p class="muted">الإجازة هنا مدفوعة (ما تنخصم من الراتب) وتنخصم من رصيد إجازات الموظف. «كل الموظفين» تنحسب عطلة رسمية وما تنخصم من الرصيد. أي يوم دوام ما بيه بصمة وما مسجّلة له إجازة يُحسب غياب وينخصم من الراتب.</p>
       </div>
       <div class="card">
         <div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="lMonth"></div><div></div></div>
@@ -120,6 +120,8 @@
         <label>سماحية التأخير الشهرية (دقيقة، توتل الشهر كله)</label><input type="number" min="0" id="sAllowance">
         <label>سعر ساعة التأخير (دينار)</label><input type="number" min="0" id="sLateRate">
         <label>سعر ساعة الإضافي (دينار)</label><input type="number" min="0" id="sOTRate">
+        <label>أيام الإجازة المدفوعة لكل موظف بالشهر (تتجمع إذا ما ياخذها)</label><input type="number" min="0" max="10" step="0.5" id="sLeaveMonthly">
+        <label>يبدي احتساب رصيد الإجازات من شهر</label><input type="month" id="sLeaveStart">
         <label>أيام العطلة الأسبوعية</label>
         <div class="row" id="weekendBox"></div>
         <h3>التنبيهات</h3>
@@ -138,7 +140,7 @@
       </div>
       <div class="card" style="border:1px solid var(--red)">
         <h3 style="margin-top:0;color:var(--red)">تصفير بيانات التجربة</h3>
-        <p class="muted" style="margin-top:0">استعمله مرة وحدة قبل ما تبدي تعتمد البرنامج. يمسح كل البصمات والإجازات والسلف والمكافآت وسجل التغييرات. الموظفين ورواتبهم ودواماتهم والإعدادات تبقى مثل ما هي. قبل المسح تنحفظ نسخة احتياطية بالسيرفر.</p>
+        <p class="muted" style="margin-top:0">استعمله مرة وحدة قبل ما تبدي تعتمد البرنامج. يمسح كل البصمات والإجازات والسلف والمكافآت وسجل التغييرات، ورصيد الإجازات يبدي من جديد من هذا الشهر. الموظفين ورواتبهم ودواماتهم والإعدادات تبقى مثل ما هي. قبل المسح تنحفظ نسخة احتياطية بالسيرفر.</p>
         <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rsUnbind" style="width:auto"> فك ربط كل التلفونات هم (إذا جرّبتوا من تلفونات غير تلفونات الموظفين)</label>
         <label>اكتب كلمة <b>تصفير</b> حتى نتأكد</label><input id="rsConfirm" autocomplete="off">
         <button style="width:100%;margin-top:12px;background:var(--red)" id="rsBtn">تصفير البيانات</button>
@@ -180,6 +182,10 @@
   <div class="row">
     <div><label>كلمة المرور <span class="muted" id="pwHint"></span></label><input id="fPass" dir="ltr"></div>
     <div><label>الراتب الشهري (دينار)</label><input type="number" min="0" id="fSalary"></div>
+  </div>
+  <div class="row">
+    <div><label>رصيد إجازات سابق (يوم) <span class="muted">إذا عنده أيام من قبل</span></label><input type="number" step="0.5" id="fLeaveOpen"></div>
+    <div><label>الرصيد الحالي</label><input id="fLeaveNow" disabled></div>
   </div>
   <label>الدوام</label><select id="fShift"></select>
   <div class="row" id="customShift">
@@ -242,9 +248,10 @@ async function loadEmployees() {
       (sel.dataset.allstaff ? '<option value="all">كل الموظفين (عطلة للكل)</option>' : '');
     if (v) sel.value = v;
   });
-  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
+  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>رصيد الإجازات</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
     employees.map((e) => `<tr><td>${esc(e.name)}</td><td dir="ltr">${esc(e.username)}</td><td>${esc(e.department)}</td><td>${money(e.salary)}</td>
       <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td>
+      <td style="${e.leave_balance <= 0 ? 'color:var(--red)' : ''}">${e.leave_balance} يوم</td>
       <td>${e.device_bound ? '📱 مربوط' + (role === 'admin' ? ' <button class="secondary small-btn" onclick="resetDevice(' + e.id + ')">فك الربط</button>' : '') : '<span class="muted">ينربط بأول دخول</span>'}</td>
       <td>${e.active ? 'فعّال' : 'موقوف'}</td>
       <td><button class="secondary small-btn" onclick="editEmp(${e.id})">تعديل</button>
@@ -256,7 +263,7 @@ function openDlg(e) {
   $('fName').value = e?.name || ''; $('fUser').value = e?.username || ''; $('fUser').disabled = !!e;
   $('fDept').value = e?.department || ''; $('fJob').value = e?.job_title || ''; $('fPass').value = '';
   $('pwHint').textContent = e ? '(اتركها فارغة إذا ما تريد تغيّرها)' : '';
-  $('fSalary').value = e?.salary ?? ''; $('fStart').value = e?.shift_start || '08:00'; $('fEnd').value = e?.shift_end || '15:00';
+  $('fSalary').value = e?.salary ?? ''; $('fLeaveOpen').value = e?.leave_opening ?? 0; $('fLeaveNow').value = e ? e.leave_balance + ' يوم' : '—'; $('fStart').value = e?.shift_start || '08:00'; $('fEnd').value = e?.shift_end || '15:00';
   $('fOT').value = e?.overtime_after || '16:00';
   $('fShift').innerHTML = shifts.map((x) => `<option value="${x.id}">${esc(x.name)} (${x.start} - ${x.end})</option>`).join('') + '<option value="">وقت مخصص لهذا الموظف</option>';
   $('fShift').value = e ? (e.shift_id || '') : (shifts[0]?.id || '');
@@ -269,7 +276,7 @@ $('fCancel').onclick = () => $('empDlg').close();
 $('fShift').onchange = () => $('customShift').classList.toggle('hidden', !!$('fShift').value);
 $('fSave').onclick = async () => {
   const body = { name: $('fName').value, department: $('fDept').value, job_title: $('fJob').value, salary: $('fSalary').value || 0,
-    shift_id: $('fShift').value || null, shift_start: $('fStart').value, shift_end: $('fEnd').value, overtime_after: $('fOT').value };
+    shift_id: $('fShift').value || null, shift_start: $('fStart').value, shift_end: $('fEnd').value, overtime_after: $('fOT').value, leave_opening: $('fLeaveOpen').value || 0 };
   if ($('fPass').value) body.password = $('fPass').value;
   try {
     if (editId) await api('/api/admin/employees/' + editId, { method: 'PUT', body: JSON.stringify(body) });
@@ -290,12 +297,12 @@ async function loadLeaves() {
   const month = $('lMonth').value;
   const [list, abs] = await Promise.all([api('/api/admin/leaves?month=' + month), loadAbsent(month)]);
   $('absentTable').innerHTML = abs.length ? '<tr><th>الموظف</th><th>أيام الغياب</th></tr>' + groupBy(abs).map(([id, rows]) =>
-    `<tr><td>${esc(rows[0].name)}${rows.length > 1 ? `<br><button class="secondary small-btn" style="margin-top:6px" onclick="paidLeave(${id}, '${rows.map((r) => r.work_date).join(',')}')">كلها إجازة مدفوعة (${rows.length})</button>` : ''}</td>
+    `<tr><td>${esc(rows[0].name)}${balTag(id)}${rows.length > 1 ? `<br><button class="secondary small-btn" style="margin-top:6px" onclick="paidLeave(${id}, '${rows.map((r) => r.work_date).join(',')}')">كلها إجازة مدفوعة (${rows.length})</button>` : ''}</td>
      <td>${rows.map((r) => `<span style="display:inline-flex;gap:6px;align-items:center;margin:3px 0 3px 12px">${r.work_date.slice(5)} ${DAYS[new Date(r.work_date + 'T00:00:00Z').getUTCDay()]}
        <button class="small-btn" onclick="paidLeave(${id}, '${r.work_date}')">إجازة مدفوعة</button></span>`).join('')}</td></tr>`).join('')
     : '<tr><td>ما كو غياب بهذا الشهر 👍</td></tr>';
   $('leaveTable').innerHTML = list.length ? '<tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>ملاحظة</th><th></th></tr>' + list.map((l) =>
-    `<tr><td>${l.leave_date}</td><td>${esc(l.name)}</td><td>${badge(l.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب')}</td><td>${esc(l.note)}</td>
+    `<tr><td>${l.leave_date}</td><td>${esc(l.name)}</td><td>${l.counts === 0 ? '<span class="badge">عطلة رسمية</span>' : badge(l.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب')}</td><td>${esc(l.note)}</td>
      <td><button class="secondary small-btn" onclick="delLeave(${l.id})">تراجع</button></td></tr>`).join('') : '<tr><td>ما كو إجازات بهذا الشهر</td></tr>';
 }
 async function loadAbsent(month) {
@@ -312,21 +319,29 @@ function groupBy(rows) {
   for (const r of rows) { if (!g.has(r.employee_id)) g.set(r.employee_id, []); g.get(r.employee_id).push(r); }
   return [...g.entries()];
 }
+const balOf = (id) => (employees.find((e) => e.id === Number(id)) || {}).leave_balance ?? 0;
+const balTag = (id) => { const b = balOf(id); return `<br><span class="muted" style="${b <= 0 ? 'color:var(--red)' : ''}">رصيد الإجازات: ${b} يوم</span>`; };
 window.paidLeave = async (id, dates) => {
+  const n = dates.split(',').length, b = balOf(id);
+  if (n > b && !confirm(`رصيد هذا الموظف ${b} يوم بس، وراح يصير ${b - n}. تريد تسجلها إجازة مدفوعة بكل الأحوال؟`)) return;
   try {
     for (const d of dates.split(',')) await api('/api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: id, from: d, to: d, paid: 1, note: '' }) });
-    loadLeaves();
+    await loadEmployees(); loadLeaves();
   } catch (e) { alert(e.message); }
 };
 $('lMonth').onchange = loadLeaves;
 $('lFrom').onchange = () => { if (!$('lTo').value || $('lTo').value < $('lFrom').value) $('lTo').value = $('lFrom').value; };
 $('lAdd').onclick = async () => {
+  if ($('lEmp').value !== 'all') {
+    const n = $('lFrom').value && $('lTo').value ? Math.round((new Date($('lTo').value) - new Date($('lFrom').value)) / 864e5) + 1 : 1, b = balOf($('lEmp').value);
+    if (n > b && !confirm(`رصيد هذا الموظف ${b} يوم بس، وراح يصير ${b - n}. تريد تكمل؟`)) return;
+  }
   try {
     const d = await api('/api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: $('lEmp').value, from: $('lFrom').value, to: $('lTo').value, paid: $('lPaid').value, note: $('lNote').value }) });
-    msg('lMsg', `تم تسجيل ${d.count} يوم إجازة${d.employees > 1 ? ` لـ ${d.employees} موظف` : ''}`, true); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
+    msg('lMsg', `تم تسجيل ${d.count} يوم ${d.balance === null ? `عطلة رسمية لـ ${d.employees} موظف (ما تنخصم من الرصيد)` : `إجازة. الرصيد الباقي: ${d.balance} يوم`}`, true); await loadEmployees(); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
   } catch (e) { msg('lMsg', e.message, false); }
 };
-window.delLeave = async (id) => { if (!confirm('تلغي هذي الإجازة؟ اليوم يرجع غياب إذا ما بيه بصمة.')) return; await api('/api/admin/leaves/' + id, { method: 'DELETE' }); loadLeaves(); };
+window.delLeave = async (id) => { if (!confirm('تلغي هذي الإجازة؟ اليوم يرجع غياب إذا ما بيه بصمة، ويرجع اليوم لرصيده.')) return; await api('/api/admin/leaves/' + id, { method: 'DELETE' }); await loadEmployees(); loadLeaves(); };
 
 // ----- الرواتب -----
 async function loadPayroll() {
@@ -392,7 +407,7 @@ function showLoc() {
 async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
-  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sDeviceLock').checked = settings.device_lock === '1';
+  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1';
   api('/api/admin/changes').then((list) => {
     const fmt = (at) => new Date(at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { timeZone: 'Asia/Baghdad', dateStyle: 'short', timeStyle: 'short' });
     $('changesTable').innerHTML = list.length ? '<tr><th>الوقت</th><th>منو</th><th>الموظف</th><th>التغيير</th><th>كان</th><th>صار</th></tr>' + list.map((c) =>
@@ -428,7 +443,7 @@ $('sSave').onclick = async () => {
   try {
     await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
-      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
+      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings();
   } catch (e) { msg('sMsg', e.message, false); }

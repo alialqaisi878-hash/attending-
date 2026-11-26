@@ -99,6 +99,10 @@ db.exec(`
   if (!ecols.includes('shift_id')) db.exec('ALTER TABLE employees ADD COLUMN shift_id INTEGER REFERENCES shifts(id)');
   if (!ecols.includes('device_id')) db.exec('ALTER TABLE employees ADD COLUMN device_id TEXT'); // الجهاز المربوط بالحساب
   if (!ecols.includes('device_at')) db.exec('ALTER TABLE employees ADD COLUMN device_at TEXT');
+  if (!ecols.includes('leave_opening')) db.exec('ALTER TABLE employees ADD COLUMN leave_opening REAL NOT NULL DEFAULT 0'); // رصيد إجازات افتتاحي
+  const lcols = db.prepare('PRAGMA table_info(leaves)').all().map((c) => c.name);
+  // counts = 1 تنخصم من رصيد الموظف، 0 عطلة رسمية لكل الموظفين ما تنخصم
+  if (!lcols.includes('counts')) db.exec('ALTER TABLE leaves ADD COLUMN counts INTEGER NOT NULL DEFAULT 1');
 }
 if (!db.prepare('SELECT COUNT(*) AS c FROM shifts').get().c) {
   db.prepare("INSERT INTO shifts(name, start, end, overtime_after) VALUES ('7:00 - 3:30', '07:00', '15:30', '16:00'), ('8:00 - 3:00', '08:00', '15:00', '16:00')").run();
@@ -114,10 +118,12 @@ const DEFAULT_SETTINGS = {
   location_lat: '',
   location_lng: '',
   location_radius: '100',   // بالمتر
-  device_lock: '1',
+  device_lock: '1',         // كل حساب موظف ينربط بجهاز واحد، وكل جهاز لحساب واحد
   accountant_user: '',      // حساب المحاسب: يشوف الرواتب ويطبعها بس
   accountant_hash: '',
-  accountant_adjust: '1',   // المحاسب يگدر يكتب المكافآت والسلف         // كل حساب موظف ينربط بجهاز واحد، وكل جهاز لحساب واحد
+  accountant_adjust: '1',   // المحاسب يگدر يكتب المكافآت والسلف
+  leave_monthly: '1',       // أيام الإجازة المدفوعة اللي تنضاف لرصيد كل موظف كل شهر
+  leave_start_month: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' }).slice(0, 7), // من هالشهر يبدي احتساب الرصيد
   month_days: '26',         // اليومية = الراتب الشهري / هذا الرقم
   remind_before: '10',      // تنبيه قبل بداية الدوام بكم دقيقة
   remind_late: '15',        // تنبيه ثاني إذا ما بصم بعد بداية الدوام بكم دقيقة
@@ -180,6 +186,21 @@ function datesBetween(from, to) {
     out.push(d.toISOString().slice(0, 10));
   }
   return out;
+}
+const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number); const [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
+// رصيد الإجازات المدفوعة لموظف لنهاية شهر معيّن: الافتتاحي + (يوم كل شهر) − الإجازات المأخوذة
+function leaveBalance(emp, month, s = getSettings()) {
+  const monthly = Number(s.leave_monthly || 0);
+  const created = String(emp.created_at || '').slice(0, 7);
+  let start = s.leave_start_month || month;
+  if (/^\d{4}-\d{2}$/.test(created) && created > start) start = created;
+  const months = month < start ? 0 : monthsBetween(start, month) + 1;
+  const accrued = months * monthly;
+  const { to } = monthRange(month);
+  const used = db.prepare(`SELECT COUNT(*) n FROM leaves WHERE employee_id = ? AND paid = 1 AND counts = 1 AND leave_date >= ? AND leave_date <= ?`)
+    .get(emp.id, start + '-01', to).n;
+  const opening = Number(emp.leave_opening || 0);
+  return { start, monthly, accrued, used, opening, balance: opening + accrued - used };
 }
 function monthRange(month) {
   const [y, m] = month.split('-').map(Number);
@@ -266,6 +287,7 @@ function payroll(emp, month) {
       attendance_pay: round(attendancePay), late_deduction: round(lateDeduction), overtime_pay: round(overtimePay),
       bonus: round(adj.bonus || 0), advance: round(adj.advance || 0), adjustment_note: adj.note || '',
       gross_salary: round(gross), net_salary: round(gross - Number(adj.advance || 0)),
+      leave_balance: leaveBalance(emp, month, s).balance,
     },
   };
 }
@@ -283,7 +305,8 @@ const publicEmp = (e0) => { const e = withShift(e0); return {
   shift_id: e.shift_id || null, shift_name: e.shift_name,
   id: e.id, username: e.username, name: e.name, department: e.department, job_title: e.job_title,
   salary: e.salary, shift_start: e.shift_start, shift_end: e.shift_end,
-  overtime_after: e.overtime_after, active: e.active, device_bound: !!e.device_id, device_at: e.device_at || null,
+  overtime_after: e.overtime_after, active: e.active, leave_opening: Number(e.leave_opening || 0),
+  leave_balance: leaveBalance(e, nowParts().date.slice(0, 7)).balance, device_bound: !!e.device_id, device_at: e.device_at || null,
 }; };
 
 // ---------- قفل الجهاز ----------
@@ -450,6 +473,7 @@ app.post('/api/admin/reset', admin, (req, res) => {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM attendance; DELETE FROM leaves; DELETE FROM adjustments; DELETE FROM changes; DELETE FROM notif_log;');
+    db.prepare("UPDATE settings SET value = ? WHERE key = 'leave_start_month'").run(nowParts().date.slice(0, 7)); // الرصيد يبدي من هالشهر
     if (b.unbind_devices) {
       db.exec("UPDATE employees SET device_id = NULL, device_at = NULL; DELETE FROM sessions WHERE kind = 'employee';");
     }
@@ -489,6 +513,7 @@ function validateEmployee(body, isNew) {
   if (password && String(password).length < 4) return 'كلمة المرور لازم 4 أحرف على الأقل';
   for (const t of [shift_start, shift_end, overtime_after]) if (t !== undefined && !TIME_RE.test(t)) return 'صيغة الوقت غير صحيحة';
   if (salary !== undefined && !(Number(salary) >= 0)) return 'الراتب غير صحيح';
+  if (body.leave_opening !== undefined && body.leave_opening !== '' && !Number.isFinite(Number(body.leave_opening))) return 'رصيد الإجازات غير صحيح';
   const ss = shift_start, se = shift_end;
   if (ss && se && toMin(se) <= toMin(ss)) return 'نهاية الدوام لازم تكون بعد بدايته';
   return null;
@@ -502,11 +527,11 @@ app.post('/api/admin/employees', staff, (req, res) => {
   const err = validateEmployee(b, true);
   if (err) return res.status(400).json({ error: err });
   try {
-    db.prepare(`INSERT INTO employees(username, name, department, job_title, password_hash, salary, shift_start, shift_end, overtime_after, shift_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT INTO employees(username, name, department, job_title, password_hash, salary, shift_start, shift_end, overtime_after, shift_id, leave_opening)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       String(b.username).trim(), b.name.trim(), (b.department || '').trim(), (b.job_title || '').trim(), hashPassword(b.password),
       Number(b.salary || 0), b.shift_start || '08:00', b.shift_end || '16:00', b.overtime_after || '16:00',
-      b.shift_id ? Number(b.shift_id) : null);
+      b.shift_id ? Number(b.shift_id) : null, Number(b.leave_opening || 0));
     const created = db.prepare('SELECT * FROM employees WHERE username = ?').get(String(b.username).trim());
     logChange(req.role, created, 'إضافة موظف', null, `الراتب ${Number(b.salary || 0)}`);
     res.json({ ok: true });
@@ -524,20 +549,20 @@ app.put('/api/admin/employees/:id', staff, (req, res) => {
   const err = validateEmployee({ ...b, shift_start: merged.shift_start, shift_end: merged.shift_end }, false);
   if (err) return res.status(400).json({ error: err });
   db.prepare(`UPDATE employees SET name = ?, department = ?, job_title = ?, salary = ?, shift_start = ?, shift_end = ?,
-    overtime_after = ?, shift_id = ?, active = ?, password_hash = ? WHERE id = ?`).run(
+    overtime_after = ?, shift_id = ?, leave_opening = ?, active = ?, password_hash = ? WHERE id = ?`).run(
     merged.name, merged.department ?? '', merged.job_title ?? '', Number(merged.salary), merged.shift_start, merged.shift_end,
-    merged.overtime_after, merged.shift_id ?? null, b.active === undefined ? emp.active : (b.active ? 1 : 0),
+    merged.overtime_after, merged.shift_id ?? null, Number(merged.leave_opening || 0), b.active === undefined ? emp.active : (b.active ? 1 : 0),
     b.password ? hashPassword(b.password) : emp.password_hash, emp.id);
   if (b.reset_device && req.role !== 'admin') return res.status(403).json({ error: 'فك ربط الجهاز للمدير بس' });
   {
     const after = { ...merged, active: b.active === undefined ? emp.active : (b.active ? 1 : 0) };
     const show = (k, v) => (k === 'active' ? (v ? 'فعّال' : 'موقوف') : k === 'shift_id' ? (v ? (db.prepare('SELECT name FROM shifts WHERE id = ?').get(v) || {}).name : 'وقت مخصص') : v);
     const labels = { name: 'الاسم', department: 'القسم', job_title: 'العنوان الوظيفي', salary: 'الراتب', shift_id: 'الدوام',
-      shift_start: 'بداية الدوام', shift_end: 'نهاية الدوام', overtime_after: 'بداية الإضافي', active: 'الحالة' };
+      shift_start: 'بداية الدوام', shift_end: 'نهاية الدوام', overtime_after: 'بداية الإضافي', active: 'الحالة', leave_opening: 'رصيد الإجازات الافتتاحي' };
     for (const [k, label] of Object.entries(labels)) {
       if (['shift_start', 'shift_end', 'overtime_after'].includes(k) && after.shift_id) continue; // الأوقات من الدوام المختار
       const o = emp[k] ?? null, n = after[k] ?? null;
-      if (String(o ?? '') !== String(n ?? '') && !(k === 'salary' && Number(o) === Number(n))) logChange(req.role, emp, label, show(k, o), show(k, n));
+      if (String(o ?? '') !== String(n ?? '') && !(['salary', 'leave_opening'].includes(k) && Number(o) === Number(n))) logChange(req.role, emp, label, show(k, o), show(k, n));
     }
     if (b.password) logChange(req.role, emp, 'الباسورد', null, 'تغيّر');
     if (b.reset_device) logChange(req.role, emp, 'فك ربط الجهاز', null, null);
@@ -692,9 +717,11 @@ app.post('/api/admin/leaves', admin, (req, res) => {
   if (employee_id !== 'all' && !db.prepare('SELECT id FROM employees WHERE id = ?').get(ids[0])) return res.status(400).json({ error: 'اختار الموظف' });
   const days = datesBetween(from, end);
   if (days.length > 60) return res.status(400).json({ error: 'الفترة طويلة جداً' });
-  const ins = db.prepare('INSERT OR REPLACE INTO leaves(employee_id, leave_date, note, paid) VALUES (?, ?, ?, ?)');
-  for (const id of ids) for (const d of days) ins.run(id, d, (note || '').trim(), paid);
-  res.json({ ok: true, count: days.length, employees: ids.length });
+  const counts = employee_id === 'all' ? 0 : 1; // عطلة لكل الموظفين ما تنخصم من الرصيد
+  const ins = db.prepare('INSERT OR REPLACE INTO leaves(employee_id, leave_date, note, paid, counts) VALUES (?, ?, ?, ?, ?)');
+  for (const id of ids) for (const d of days) ins.run(id, d, (note || '').trim() || (counts ? '' : 'عطلة رسمية'), paid, counts);
+  const one = employee_id === 'all' ? null : db.prepare('SELECT * FROM employees WHERE id = ?').get(ids[0]);
+  res.json({ ok: true, count: days.length, employees: ids.length, balance: one ? leaveBalance(one, nowParts().date.slice(0, 7)).balance : null });
 });
 app.delete('/api/admin/leaves/:id', admin, (req, res) => {
   db.prepare('DELETE FROM leaves WHERE id = ?').run(Number(req.params.id));
@@ -737,6 +764,14 @@ app.put('/api/admin/settings', admin, (req, res) => {
     s[k] = String(Number(b[k]));
   }
   if (b.device_lock !== undefined) s.device_lock = b.device_lock ? '1' : '0';
+  if (b.leave_monthly !== undefined) {
+    if (!(Number(b.leave_monthly) >= 0 && Number(b.leave_monthly) <= 10)) return res.status(400).json({ error: 'أيام الإجازة بالشهر غير صحيحة' });
+    s.leave_monthly = String(Number(b.leave_monthly));
+  }
+  if (b.leave_start_month !== undefined) {
+    if (!MONTH_RE.test(b.leave_start_month)) return res.status(400).json({ error: 'شهر بداية الرصيد غير صحيح' });
+    s.leave_start_month = b.leave_start_month;
+  }
   if (b.accountant_adjust !== undefined) s.accountant_adjust = b.accountant_adjust ? '1' : '0';
   let resetAccountant = false;
   if (b.accountant_user !== undefined) {

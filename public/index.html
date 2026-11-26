@@ -74,6 +74,7 @@
           <div class="kv"><span>يبدي الأوفر تايم من</span><b id="pOTAfter"></b></div>
           <div class="kv"><span>أجر ساعة الأوفر تايم</span><b id="pOTRate"></b></div>
           <div class="kv"><span>تأخيري هذا الشهر / المسموح</span><b id="pAllow"></b></div>
+          <div class="kv"><span>رصيد إجازاتي المدفوعة</span><b id="pLeaveBal"></b></div>
         </div>
       </div>
     </div>
@@ -195,6 +196,7 @@ async function loadHome() {
   $("pShift").textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $("pShift").dir = "ltr"; $('pOTAfter').textContent = t5(e.overtime_after);
   $('pOTRate').textContent = money(s.overtime_hour_rate);
   $('pAllow').textContent = `${s.late_minutes} د / ${s.late_allowance} د`;
+  $('pLeaveBal').textContent = `${s.leave_balance} يوم`;
   $('daysTable').innerHTML = '<tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>' +
     d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}${r.in_offline ? ' 📵' : ''}</td><td>${t5(r.check_out)}${r.out_offline ? ' 📵' : ''}</td><td>${badge(r.status)}</td>
       <td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');

@@ -61,8 +61,8 @@ const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربع�
       </div>
 
       <h3>ملخص الحضور</h3>
-      <table><tr><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>أيام الغياب</th><th>إجازة مدفوعة</th><th>إجازة بدون راتب</th><th>ساعات العمل</th><th>ساعات الأوفر تايم</th></tr>
-      <tr><td>${s.present_days}</td><td>${s.late_days}</td><td>${s.late_minutes}</td><td>${s.absent_days}</td><td>${s.paid_leave_days}</td><td>${s.unpaid_leave_days}</td><td>${hrs(s.worked_minutes)}</td><td>${hrs(s.overtime_minutes)}</td></tr></table>
+      <table><tr><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>أيام الغياب</th><th>إجازة مدفوعة</th><th>إجازة بدون راتب</th><th>ساعات العمل</th><th>ساعات الأوفر تايم</th><th>رصيد الإجازات الباقي</th></tr>
+      <tr><td>${s.present_days}</td><td>${s.late_days}</td><td>${s.late_minutes}</td><td>${s.absent_days}</td><td>${s.paid_leave_days}</td><td>${s.unpaid_leave_days}</td><td>${hrs(s.worked_minutes)}</td><td>${hrs(s.overtime_minutes)}</td><td>${s.leave_balance ?? '—'} يوم</td></tr></table>
 
       <h3>تفاصيل الراتب</h3>
       <table class="money">

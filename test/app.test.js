@@ -206,4 +206,27 @@ test('reset clears test data but keeps employees and settings', async () => {
   assert.equal((await get('/api/admin/changes', adminToken)).length, 1); // only the reset itself
 });
 
+test('paid leave balance: one day a month, rolls over, used by paid leave, not by official holidays', async () => {
+  const month = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' }).slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const prev = (k) => { const d = new Date(Date.UTC(y, m - 1 - k, 1)); return d.toISOString().slice(0, 7); };
+  assert.ok((await put('/api/admin/settings', { leave_monthly: 1, leave_start_month: prev(2) }, adminToken)).ok); // 3 months so far
+  assert.ok((await post('/api/admin/employees', { username: 'lv', name: 'رصيد', password: 'pass1234', salary: 260000 }, adminToken)).ok);
+  const id = (await get('/api/admin/employees', adminToken)).find((e) => e.username === 'lv').id;
+  db.prepare('UPDATE employees SET created_at = ? WHERE id = ?').run(prev(5) + '-01 00:00:00', id);
+  const bal = async () => (await get('/api/admin/employees', adminToken)).find((e) => e.id === id).leave_balance;
+  assert.equal(await bal(), 3);
+  const r = await (await post('/api/admin/leaves', { employee_id: id, from: month + '-02', to: month + '-03', paid: 1 }, adminToken)).json();
+  assert.equal(r.balance, 1);
+  assert.equal(await bal(), 1);
+  assert.ok((await post('/api/admin/leaves', { employee_id: 'all', from: month + '-04', paid: 1 }, adminToken)).ok);
+  assert.equal(await bal(), 1); // holiday for everyone does not use the balance
+  assert.ok((await put('/api/admin/employees/' + id, { leave_opening: 4 }, adminToken)).ok);
+  assert.equal(await bal(), 5);
+  const slip = await get(`/api/admin/payslip?employee_id=${id}&month=${month}`, adminToken);
+  assert.equal(slip.summary.leave_balance, 5);
+  db.prepare('UPDATE employees SET created_at = ? WHERE id = ?').run(month + '-01 00:00:00', id);
+  assert.equal(await bal(), 4 + 1 - 2); // new employees start earning from the month they were added
+});
+
 test('reminder tick runs', async () => { await reminderTick(); });
