@@ -229,4 +229,30 @@ test('paid leave balance: one day a month, rolls over, used by paid leave, not b
   assert.equal(await bal(), 4 + 1 - 2); // new employees start earning from the month they were added
 });
 
+test('each punch is sent to the n8n webhook, and a broken webhook never blocks a punch', async () => {
+  const http = require('node:http');
+  const got = [];
+  const hook = http.createServer((q, r) => { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => { got.push(JSON.parse(b)); r.end('ok'); }); }).listen(0);
+  const url = `http://localhost:${hook.address().port}/webhook/punch`;
+  try {
+    assert.ok((await post('/api/admin/webhook-test', { url }, adminToken)).ok);
+    assert.equal(got.pop().event, 'test');
+    assert.ok((await put('/api/admin/settings', { webhook_url: url }, adminToken)).ok);
+    const acc = (await (await post('/api/admin/login', { username: 'acc', password: 'new12345' })).json()).token;
+    assert.equal((await get('/api/admin/settings', acc)).webhook_url, undefined);
+    await post('/api/admin/employees', { username: 'wh', name: 'ويب هوك', password: 'pass1234' }, adminToken);
+    const { token } = await (await post('/api/login', { username: 'wh', password: 'pass1234' })).json();
+    assert.ok((await post('/api/punch', { action: 'in' }, token)).ok);
+    await new Promise((r) => setTimeout(r, 300));
+    const p = got.pop();
+    assert.equal(p.employee_name, 'ويب هوك'); assert.equal(p.action, 'in'); assert.match(p.time, /^\d\d:\d\d$/); assert.match(p.text, /ويب هوك بصم حضور/);
+    // n8n down: punch still saved
+    assert.ok((await put('/api/admin/settings', { webhook_url: 'http://localhost:1/nothing' }, adminToken)).ok);
+    assert.ok((await post('/api/punch', { action: 'out' }, token)).ok);
+  } finally {
+    hook.close();
+    await put('/api/admin/settings', { webhook_url: '' }, adminToken);
+  }
+});
+
 test('reminder tick runs', async () => { await reminderTick(); });

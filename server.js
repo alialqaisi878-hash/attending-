@@ -122,6 +122,7 @@ const DEFAULT_SETTINGS = {
   accountant_user: '',      // حساب المحاسب: يشوف الرواتب ويطبعها بس
   accountant_hash: '',
   accountant_adjust: '1',   // المحاسب يگدر يكتب المكافآت والسلف
+  webhook_url: '',          // رابط n8n: كل بصمة تنرسل له (مثلاً لبوت شكيب)
   leave_monthly: '1',       // أيام الإجازة المدفوعة اللي تنضاف لرصيد كل موظف كل شهر
   leave_start_month: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' }).slice(0, 7), // من هالشهر يبدي احتساب الرصيد
   month_days: '26',         // اليومية = الراتب الشهري / هذا الرقم
@@ -393,6 +394,29 @@ app.post('/api/me/password', auth('employee'), (req, res) => {
   res.json({ ok: true });
 });
 
+// نرسل البصمة لـ n8n (Webhook). ما ننتظره، وإذا فشل البصمة تبقى مسجّلة عادي
+async function sendWebhook(payload, url = getSettings().webhook_url) {
+  if (!url) return { skipped: true };
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(5000) });
+    return { ok: r.ok, status: r.status };
+  } catch (e) {
+    console.error('webhook failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+function punchPayload(emp, action, date, time, offline, syncedAt, dist) {
+  const e = withShift(emp);
+  const late = action === 'in' ? Math.max(0, toMin(time.slice(0, 5)) - toMin(e.shift_start)) : 0;
+  const text = `${emp.name} بصم ${action === 'in' ? 'حضور' : 'انصراف'} الساعة ${time.slice(0, 5)} بتاريخ ${date}`
+    + (late ? ` (متأخر ${late} دقيقة)` : '') + (offline ? ' - بصمة بدون نت' : '');
+  return {
+    event: 'punch', employee_name: emp.name, username: emp.username, department: emp.department || '',
+    action, action_ar: action === 'in' ? 'حضور' : 'انصراف', date, time: time.slice(0, 5),
+    shift: `${e.shift_start} - ${e.shift_end}`, late_minutes: late, offline, synced_at: offline ? syncedAt : null,
+    distance_m: dist == null ? null : Math.round(dist), text,
+  };
+}
 app.post('/api/punch', auth('employee'), (req, res) => {
   const { action, lat, lng, offline_at, queued } = req.body;
   const emp = req.emp;
@@ -436,6 +460,7 @@ app.post('/api/punch', auth('employee'), (req, res) => {
       db.prepare('INSERT INTO attendance(employee_id, work_date, check_in, in_lat, in_lng, in_distance, in_offline, in_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(emp.id, date, time, la, ln, dist, offline ? 1 : 0, offline ? syncedAt : null);
     }
+    sendWebhook(punchPayload(emp, 'in', date, time, offline, syncedAt, dist));
     return res.json({ ok: true, message: `أهلاً ${emp.name}، تم تسجيل حضورك الساعة ${time.slice(0, 5)}${tag}` });
   }
   if (action === 'out') {
@@ -445,6 +470,7 @@ app.post('/api/punch', auth('employee'), (req, res) => {
     if (time < rec.check_in) return res.status(400).json({ error: 'وقت الانصراف قبل وقت الحضور' });
     db.prepare('UPDATE attendance SET check_out = ?, out_lat = ?, out_lng = ?, out_distance = ?, out_offline = ?, out_synced_at = ? WHERE id = ?')
       .run(time, la, ln, dist, offline ? 1 : 0, offline ? syncedAt : null, rec.id);
+    sendWebhook(punchPayload(emp, 'out', date, time, offline, syncedAt, dist));
     return res.json({ ok: true, message: `مع السلامة ${emp.name}، تم تسجيل انصرافك الساعة ${time.slice(0, 5)}${tag}` });
   }
   res.status(400).json({ error: 'عملية غير معروفة' });
@@ -482,6 +508,16 @@ app.post('/api/admin/reset', admin, (req, res) => {
   logChange('admin', null, 'تصفير بيانات التجربة', null,
     `بصمات ${counts.attendance}، إجازات ${counts.leaves}، سلف/مكافآت ${counts.adjustments}${b.unbind_devices ? '، وفك ربط كل الأجهزة' : ''}`);
   res.json({ ok: true, ...counts, backup: backup ? path.basename(backup) : null });
+});
+app.post('/api/admin/webhook-test', admin, async (req, res) => {
+  const url = String(req.body.url || getSettings().webhook_url || '').trim();
+  if (!url) return res.status(400).json({ error: 'اكتب رابط n8n أول' });
+  const { date, time } = nowParts();
+  const payload = { event: 'test', employee_name: 'تجربة', username: 'test', action: 'in', action_ar: 'حضور', date, time: time.slice(0, 5),
+    late_minutes: 0, offline: false, text: `رسالة تجربة من برنامج الحضور الساعة ${time.slice(0, 5)}` };
+  const r = await sendWebhook(payload, url);
+  if (r.ok) return res.json({ ok: true, status: r.status });
+  res.status(400).json({ error: r.status ? `n8n رد بخطأ ${r.status}. تأكد إن الـ workflow مفعّل والرابط Production.` : `ما وصل لـ n8n: ${r.error}` });
 });
 app.get('/api/admin/changes', admin, (req, res) => {
   res.json(db.prepare('SELECT * FROM changes ORDER BY id DESC LIMIT 200').all());
@@ -731,6 +767,7 @@ app.delete('/api/admin/leaves/:id', admin, (req, res) => {
 // الإعدادات
 app.get('/api/admin/settings', staff, (req, res) => {
   const s = getSettings(); delete s.vapid_private; delete s.accountant_hash;
+  if (req.role !== 'admin') delete s.webhook_url;
   s.accountant_has_password = !!getSettings().accountant_hash;
   res.json(s);
 });
@@ -764,6 +801,11 @@ app.put('/api/admin/settings', admin, (req, res) => {
     s[k] = String(Number(b[k]));
   }
   if (b.device_lock !== undefined) s.device_lock = b.device_lock ? '1' : '0';
+  if (b.webhook_url !== undefined) {
+    const u = String(b.webhook_url).trim();
+    if (u && !/^https?:\/\/[^\s]+$/.test(u)) return res.status(400).json({ error: 'رابط n8n لازم يبدي بـ http:// أو https://' });
+    s.webhook_url = u;
+  }
   if (b.leave_monthly !== undefined) {
     if (!(Number(b.leave_monthly) >= 0 && Number(b.leave_monthly) <= 10)) return res.status(400).json({ error: 'أيام الإجازة بالشهر غير صحيحة' });
     s.leave_monthly = String(Number(b.leave_monthly));

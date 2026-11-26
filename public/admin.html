@@ -124,6 +124,11 @@
         <label>يبدي احتساب رصيد الإجازات من شهر</label><input type="month" id="sLeaveStart">
         <label>أيام العطلة الأسبوعية</label>
         <div class="row" id="weekendBox"></div>
+        <h3>ربط n8n (رسالة لكل بصمة)</h3>
+        <p class="muted" style="margin-top:0">كل ما موظف يبصم حضور أو انصراف، البرنامج يدز لهذا الرابط اسمه ووقته. إذا n8n عطلان البصمة تنحفظ عادي.</p>
+        <label>رابط Webhook من n8n (Production URL)</label><input id="sWebhook" dir="ltr" placeholder="https://.../webhook/...">
+        <button class="secondary" style="margin-top:8px" id="sWebhookTest">تجربة الرابط</button>
+        <div class="msg" id="whMsg"></div>
         <h3>التنبيهات</h3>
         <label>تذكير قبل بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRB">
         <label>تذكير ثاني إذا ما بصم بعد بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRL">
@@ -407,7 +412,7 @@ function showLoc() {
 async function loadSettings() {
   settings = await api('/api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
-  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1';
+  $('sCompany').value = settings.company_name; $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sWebhook').value = settings.webhook_url || ''; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1';
   api('/api/admin/changes').then((list) => {
     const fmt = (at) => new Date(at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { timeZone: 'Asia/Baghdad', dateStyle: 'short', timeStyle: 'short' });
     $('changesTable').innerHTML = list.length ? '<tr><th>الوقت</th><th>منو</th><th>الموظف</th><th>التغيير</th><th>كان</th><th>صار</th></tr>' + list.map((c) =>
@@ -429,6 +434,11 @@ $('useMyLoc').onclick = async () => {
   $('sLat').value = l.lat.toFixed(6); $('sLng').value = l.lng.toFixed(6); showLoc();
   msg('sMsg', `تم أخذ الموقع (الدقة تقريباً ${Math.round(l.accuracy)} متر). اضغط حفظ.`, true);
 };
+$('sWebhookTest').onclick = async () => {
+  msg('whMsg', 'جاري الإرسال...', true);
+  try { await api('/api/admin/webhook-test', { method: 'POST', body: JSON.stringify({ url: $('sWebhook').value }) }); msg('whMsg', 'وصلت لـ n8n ✅ لا تنسى تضغط «حفظ الإعدادات».', true); }
+  catch (e) { msg('whMsg', e.message, false); }
+};
 $('rsBtn').onclick = async () => {
   if ($('rsConfirm').value.trim() !== 'تصفير') return msg('rsMsg', 'اكتب كلمة «تصفير» بالمربع', false);
   if (!confirm('أكيد تريد تمسح كل البصمات والإجازات والسلف والمكافآت؟')) return;
@@ -443,7 +453,7 @@ $('sSave').onclick = async () => {
   try {
     await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
-      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
+      company_name: $('sCompany').value, late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, webhook_url: $('sWebhook').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings();
   } catch (e) { msg('sMsg', e.message, false); }
