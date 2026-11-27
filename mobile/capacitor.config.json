@@ -1,0 +1,10 @@
+{
+  "appId": "com.basma.attendance",
+  "appName": "بصمة",
+  "webDir": "www",
+  "server": { "androidScheme": "https", "iosScheme": "capacitor" },
+  "plugins": {
+    "LocalNotifications": { "iconColor": "#1f6feb" },
+    "SplashScreen": { "launchShowDuration": 800, "backgroundColor": "#f4f6f9" }
+  }
+}

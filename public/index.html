@@ -4,127 +4,213 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>الحضور والانصراف</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="logo">
 <link rel="apple-touch-icon" href="logo">
 <meta name="theme-color" content="#1f6feb">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
-<header><div class="brand"><img class="company-logo hidden" alt=""><h1 id="company" class="company-name">الحضور والانصراف</h1></div><span><a href="#" id="logout" class="hidden">خروج</a></span></header>
-<div id="subBar" class="subbar hidden"></div>
-<main>
-  <!-- تسجيل دخول الموظف -->
-  <div class="card narrow" id="loginBox">
-    <h2 style="margin-top:0;text-align:center">تسجيل الدخول</h2>
-    <label for="user">اسم المستخدم</label>
-    <input id="user" autocomplete="username" autocapitalize="off" dir="ltr">
-    <label for="pass">كلمة المرور</label>
-    <input id="pass" type="password" autocomplete="current-password" dir="ltr">
-    <button style="width:100%;margin-top:16px" id="loginBtn">دخول</button>
+<div class="pill warn offline hidden" id="offlineBar"></div>
+
+<!-- السماء: لونها حسب وقت اليوم -->
+<section class="sky day" id="sky">
+  <div class="orb-sun"></div><div class="stars" id="stars"></div>
+  <div class="topbar">
+    <div class="brand2"><img class="company-logo hidden" alt=""><span class="company-name">الحضور والانصراف</span></div>
+    <span class="pill hidden" id="streakPill"></span>
+  </div>
+  <div class="hello2"><div class="greet" id="greet">أهلاً</div><h1 id="empName">سجّل دخولك</h1></div>
+  <div class="clock2"><span class="t num" id="clock">--:--</span><span class="d" id="date"></span></div>
+  <svg class="waves" viewBox="0 0 1440 120" preserveAspectRatio="none"><path d="M0,64 C240,120 480,0 720,40 C960,80 1200,120 1440,56 L1440,120 L0,120 Z"></path></svg>
+</section>
+
+<div class="wrap">
+  <div class="panel hidden" id="subBar" style="color:var(--red);font-weight:600"></div>
+
+  <!-- تسجيل الدخول -->
+  <div class="panel view" id="loginBox">
+    <h3>تسجيل الدخول</h3>
+    <div class="field"><label for="user">اسم المستخدم</label><input id="user" autocomplete="username" autocapitalize="off" dir="ltr"></div>
+    <div class="field"><label for="pass">كلمة المرور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr"></div>
+    <button class="btn" style="margin-top:18px" id="loginBtn">دخول</button>
     <div class="msg" id="loginMsg"></div>
-    <p class="muted support-note" id="supportNote"></p>
-    <p class="muted" style="text-align:center;margin-top:16px"><a href="admin.html">دخول المدير</a></p>
+    <p class="muted2" style="text-align:center;margin-top:14px" id="supportNote"></p>
+    <div class="links"><a href="admin.html">دخول المدير</a><span class="appOnly hidden"> · <a href="start.html?change=1">تغيير الشركة</a></span></div>
   </div>
 
-  <!-- الواجهة الرئيسية للموظف -->
   <div id="home" class="hidden">
-    <div class="card">
-      <div class="hello">
-        <div><h2 id="empName"></h2><div class="muted" id="empInfo"></div></div>
-        <div style="text-align:left"><div class="clock" id="clock" style="font-size:32px">--:--</div><div class="muted" id="date"></div></div>
-      </div>
-      <div class="row" style="margin-top:16px">
-        <button class="big in" id="btnIn">تسجيل حضور</button>
-        <button class="big out" id="btnOut">تسجيل انصراف</button>
-      </div>
-      <div class="msg" id="msg"></div>
-      <div class="msg err" id="offlineBar" style="display:none"></div>
-      <p class="muted" id="todayLine" style="margin-bottom:0"></p>
-      <p class="muted" id="locNote" style="margin:6px 0 0"></p>
-    </div>
-
-    <div class="card" id="pushCard">
-      <div class="hello"><div><b>تنبيهات البصمة</b><div class="muted" id="pushNote">نذكّرك قبل بداية الدوام، وإذا تأخرت، وبعد نهاية الدوام إذا ما بصمت انصراف.</div></div>
-      <button id="pushBtn" class="secondary">تفعيل التنبيهات 🔔</button></div>
-      <div class="msg" id="pushMsg"></div>
-    </div>
-
-    <div class="stats">
-      <div class="stat"><div class="n" id="sPresent" style="color:var(--green)">0</div><div class="l">أيام الحضور هذا الشهر</div></div>
-      <div class="stat"><div class="n" id="sLate" style="color:var(--amber)">0</div><div class="l">أيام التأخير</div></div>
-      <div class="stat"><div class="n" id="sAbsent" style="color:var(--red)">0</div><div class="l">أيام الغياب</div></div>
-      <div class="stat"><div class="n" id="sLeave" style="color:var(--primary)">0</div><div class="l">إجازة مدفوعة</div></div>
-      <div class="stat"><div class="n" id="sUnpaid">0</div><div class="l">إجازة بدون راتب</div></div>
-      <div class="stat"><div class="n" id="sOT">0</div><div class="l">أوفر تايم</div></div>
-    </div>
-
-    <div class="card">
-      <div class="hello"><h3 style="margin:0">راتبي هذا الشهر (تقديري)</h3>
-        <button class="secondary small-btn" id="printBtn">طباعة فورمة الراتب</button></div>
-      <div class="grid2" style="margin-top:10px">
-        <div>
-          <div class="kv"><span>الراتب الأساسي</span><b id="pBase"></b></div>
-          <div class="kv"><span>أجر أيام الحضور</span><b id="pAtt"></b></div>
-          <div class="kv"><span>خصم التأخير</span><b id="pLate" style="color:var(--red)"></b></div>
-          <div class="kv"><span>أجر الأوفر تايم</span><b id="pOT" style="color:var(--green)"></b></div>
-          <div class="kv"><span>المكافأة / السلفة</span><b id="pAdj"></b></div>
-          <div class="kv"><span>الصافي حتى اليوم</span><b class="net" id="pNet"></b></div>
+    <!-- الرئيسية -->
+    <div data-view="home" class="view">
+      <div class="panel punch">
+        <div class="fp" id="fp" role="button" tabindex="0" aria-label="بصمة">
+          <svg class="base" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+            <path d="M18 26a14 14 0 0 1 28 0v6"/><path d="M24 44c2-4 2-9 2-14a6 6 0 0 1 12 0c0 6-1 12-4 17"/><path d="M32 30c0 8-1 15-6 22"/>
+            <path d="M12 38c1-4 1-8 1-12a19 19 0 0 1 32-14"/><path d="M50 22c1 3 1 6 1 10 0 7-1 13-3 18"/><path d="M40 36c0 6-1 12-3 17"/>
+          </svg>
+          <svg class="ink" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+            <path d="M18 26a14 14 0 0 1 28 0v6"/><path d="M24 44c2-4 2-9 2-14a6 6 0 0 1 12 0c0 6-1 12-4 17"/><path d="M32 30c0 8-1 15-6 22"/>
+            <path d="M12 38c1-4 1-8 1-12a19 19 0 0 1 32-14"/><path d="M50 22c1 3 1 6 1 10 0 7-1 13-3 18"/><path d="M40 36c0 6-1 12-3 17"/>
+          </svg>
+          <div class="check">✓</div>
         </div>
-        <div>
-          <div class="kv"><span>وقت الدوام</span><b id="pShift"></b></div>
-          <div class="kv"><span>يبدي الأوفر تايم من</span><b id="pOTAfter"></b></div>
-          <div class="kv"><span>أجر ساعة الأوفر تايم</span><b id="pOTRate"></b></div>
-          <div class="kv"><span>تأخيري هذا الشهر / المسموح</span><b id="pAllow"></b></div>
-          <div class="kv"><span>رصيد إجازاتي المدفوعة</span><b id="pLeaveBal"></b></div>
+        <div class="label" id="punchLabel">اضغط مطوّلاً للحضور</div>
+        <div class="sub" id="todayLine"></div>
+        <div class="loc hidden" id="locChip"><span class="radar"><i></i><i></i><i></i></span><span id="locText"></span></div>
+        <div id="msg"></div>
+      </div>
+
+      <div class="streak hidden" id="streakCard"><span class="f">🔥</span><div><b id="streakTitle"></b><span id="streakSub" style="font-size:13px;opacity:.9"></span></div></div>
+
+      <div class="panel">
+        <h3>دوام اليوم</h3>
+        <div class="timeline"><div class="tl-bar" id="tlBar"><div class="tl-fill" id="tlFill" style="width:0"></div></div>
+          <div class="tl-ends"><span id="tlStart"></span><span class="muted2" id="tlMid"></span><span id="tlEnd"></span></div></div>
+      </div>
+
+      <div class="panel">
+        <h3>هذا الشهر</h3>
+        <div class="rings">
+          <div class="ring"><div class="r" id="rgAtt"><b class="num" id="sPresent">0</b></div><div class="l">يوم حضور</div></div>
+          <div class="ring"><div class="r" id="rgLate" style="--col:var(--amber)"><b class="num" id="sLateMin">0</b></div><div class="l">دقيقة تأخير من <span id="sAllow">0</span></div></div>
+          <div class="ring"><div class="r" id="rgOT" style="--col:var(--violet)"><b class="num" id="sOT">0</b></div><div class="l">ساعة إضافي</div></div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <h3 style="margin-top:0">سجل هذا الشهر</h3>
-      <div class="table-wrap"><table id="daysTable"></table></div>
+    <!-- سجلّي -->
+    <div data-view="history" class="view hidden">
+      <div class="panel">
+        <h3 id="calTitle">سجل الشهر</h3>
+        <div class="cal" id="cal"></div>
+        <div class="legend">
+          <span><i style="background:var(--green)"></i>حاضر</span><span><i style="background:var(--amber)"></i>متأخر</span><span><i style="background:var(--red)"></i>غائب</span>
+          <span><i style="background:var(--blue)"></i>إجازة</span><span><i style="background:var(--violet)"></i>دوام بالعطلة</span>
+        </div>
+        <div class="daycard hidden" id="dayCard"></div>
+      </div>
+      <div class="panel">
+        <div class="rings">
+          <div class="ring"><div class="r" style="--col:var(--red);--v:100"><b class="num" id="sAbsent">0</b></div><div class="l">غياب</div></div>
+          <div class="ring"><div class="r" style="--col:var(--blue);--v:100"><b class="num" id="sLeave">0</b></div><div class="l">إجازة مدفوعة</div></div>
+          <div class="ring"><div class="r" style="--col:var(--amber);--v:100"><b class="num" id="sLate">0</b></div><div class="l">يوم تأخير</div></div>
+        </div>
+      </div>
     </div>
 
-    <div class="card narrow">
-      <h3 style="margin-top:0">تغيير كلمة المرور</h3>
-      <label>كلمة المرور الحالية</label><input type="password" id="oldPw" dir="ltr">
-      <label>كلمة المرور الجديدة</label><input type="password" id="newPw" dir="ltr">
-      <button style="margin-top:12px" class="secondary" id="pwBtn">تغيير</button>
-      <div class="msg" id="pwMsg"></div>
+    <!-- راتبي -->
+    <div data-view="salary" class="view hidden">
+      <div class="money-hero"><div style="opacity:.85">صافي راتبك حتى اليوم</div><div class="amt num" id="pNet">0</div><div style="opacity:.85;font-size:13px" id="pMonthName"></div></div>
+      <div class="panel bars" id="bars"></div>
+      <div class="panel">
+        <div class="kv2"><span>الراتب الأساسي</span><b class="num" id="pBase"></b></div>
+        <div class="kv2"><span>وقت الدوام</span><b class="num" dir="ltr" id="pShift"></b></div>
+        <div class="kv2"><span>الإضافي يبدي من</span><b class="num" id="pOTAfter"></b></div>
+        <div class="kv2"><span>رصيد إجازاتي</span><b id="pLeaveBal"></b></div>
+        <button class="btn" style="margin-top:14px" id="printBtn">📄 فورمة راتبي</button>
+      </div>
+    </div>
+
+    <!-- حسابي -->
+    <div data-view="me" class="view hidden">
+      <div class="panel" style="display:flex;gap:14px;align-items:center">
+        <div class="avatar" id="avatar">؟</div>
+        <div><b id="meName" style="font-size:18px"></b><div class="muted2" id="empInfo"></div><div class="muted2" dir="ltr" id="meUser" style="text-align:right"></div></div>
+      </div>
+      <div class="panel list" id="pushCard">
+        <div class="it"><div><b>تذكير البصمة</b><div class="muted2" id="pushNote">قبل الدوام، وإذا تأخرت، وبعد نهاية الدوام.</div></div><button class="switch" id="pushBtn" aria-label="التنبيهات"></button></div>
+        <div class="msg" id="pushMsg"></div>
+      </div>
+      <div class="panel">
+        <h3>تغيير كلمة المرور</h3>
+        <div class="field"><label>الحالية</label><input type="password" id="oldPw" dir="ltr"></div>
+        <div class="field"><label>الجديدة</label><input type="password" id="newPw" dir="ltr"></div>
+        <button class="btn ghost" style="margin-top:14px" id="pwBtn">تغيير</button>
+        <div class="msg" id="pwMsg"></div>
+      </div>
+      <div class="panel list">
+        <div class="it appOnly hidden"><span>تغيير الشركة</span><a class="btn ghost" style="width:auto;padding:9px 16px" href="start.html?change=1">تغيير</a></div>
+        <div class="it"><span>تسجيل الخروج</span><button class="btn ghost" style="width:auto;padding:9px 16px;color:var(--red)" id="logout">خروج</button></div>
+      </div>
     </div>
   </div>
-</main>
+</div>
+
+<nav class="tabbar hidden" id="tabbar">
+  <span class="ind" id="tabInd"></span>
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 11a5 5 0 0 1 10 0v2"/><path d="M9.5 17c.8-1.6.8-3.4.8-5a1.7 1.7 0 0 1 3.4 0c0 2.2-.4 4.4-1.5 6.4"/><path d="M4.5 14c.3-1 .3-2 .3-3a7.2 7.2 0 0 1 12.2-5.2"/><path d="M19 9c.3 1 .3 2 .3 3.3 0 2.6-.4 5-1.2 7"/></svg>البصمة</button>
+  <button data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>سجلّي</button>
+  <button data-tab="salary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><circle cx="12" cy="12.5" r="2.6"/><path d="M6 9.5v.01M18 15.5v.01"/></svg>راتبي</button>
+  <button data-tab="me"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>حسابي</button>
+</nav>
+
 <script src="common.js"></script>
 <script>
 const api = makeApi('emp_token', showLogin);
+let monthNow = '', me = null, selDay = null;
+const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
+const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+const nowMin = () => toMin(new Date().toLocaleTimeString('en-GB', { timeZone: APP_TZ, hour12: false }));
+const haptic = (ms = 20) => { try { window.Capacitor?.Plugins?.Haptics?.impact({ style: 'MEDIUM' }) || navigator.vibrate?.(ms); } catch (e) {} };
 loadInfo().then((i) => { $('supportNote').textContent = i.support_note || ''; document.title = i.company_name || document.title; });
-let monthNow = '';
+if (IS_APP) document.querySelectorAll('.appOnly').forEach((e) => e.classList.remove('hidden'));
 
-function showLogin() {
-  store.del('emp_token');
-  $('home').classList.add('hidden'); $('logout').classList.add('hidden'); $('loginBox').classList.remove('hidden');
+// ----- السماء والساعة -----
+(function makeStars() { let h = ''; for (let i = 0; i < 40; i++) h += `<i style="top:${Math.random() * 70}%;left:${Math.random() * 100}%;animation-delay:${Math.random() * 3}s;opacity:${0.4 + Math.random() * 0.6}"></i>`; $('stars').innerHTML = h; })();
+function tick() {
+  const n = new Date();
+  $('clock').textContent = n.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ, hour12: false });
+  $('date').textContent = n.toLocaleDateString('ar-IQ', { weekday: 'long', month: 'long', day: 'numeric', timeZone: APP_TZ });
+  const h = Math.floor(nowMin() / 60);
+  const phase = h >= 5 && h < 8 ? 'dawn' : h >= 8 && h < 17 ? 'day' : h >= 17 && h < 19 ? 'dusk' : 'night';
+  $('sky').className = 'sky ' + phase;
+  $('greet').textContent = h >= 4 && h < 12 ? 'صباح الخير ☀️' : h < 17 ? 'نهارك سعيد 🌤️' : 'مساء الخير 🌙';
+  if (me) drawTimeline();
 }
-$('logout').onclick = async (e) => { e.preventDefault(); try { await api('api/logout', { method: 'POST' }); } catch (x) {} showLogin(); };
+tick(); setInterval(tick, 15000);
 
+// ----- التبويبات -----
+const TABS = ['home', 'history', 'salary', 'me'];
+function showTab(t) {
+  document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  $('tabInd').style.transform = `translateX(${-TABS.indexOf(t) * 100}%)`;
+  document.querySelectorAll('[data-view]').forEach((v) => { const on = v.dataset.view === t; v.classList.toggle('hidden', !on); if (on) { v.classList.remove('view'); void v.offsetWidth; v.classList.add('view'); } });
+  $('sky').classList.toggle('compact', t !== 'home');
+  if (t === 'salary') animateSalary();
+  if (t === 'home') checkLocation();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  haptic(8);
+}
+document.querySelectorAll('#tabbar button').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+
+function countUp(el, to, fmt = (v) => Math.round(v).toLocaleString('en-US')) {
+  const from = 0, t0 = performance.now(), dur = 900;
+  const step = (t) => { const k = Math.min(1, (t - t0) / dur); const e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(from + (to - from) * e); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+function setRing(id, pct) { requestAnimationFrame(() => $(id).style.setProperty('--v', Math.max(0, Math.min(100, pct)))); }
+
+// ----- الدخول والخروج -----
+function showLogin() {
+  store.del('emp_token'); me = null;
+  $('home').classList.add('hidden'); $('tabbar').classList.add('hidden'); $('loginBox').classList.remove('hidden');
+  $('empName').textContent = 'سجّل دخولك'; $('streakPill').classList.add('hidden');
+}
+$('logout').onclick = async () => { try { await api('api/logout', { method: 'POST' }); } catch (x) {} showLogin(); };
 $('loginBtn').onclick = async () => {
+  $('loginBtn').disabled = true;
   try {
     const d = await api('api/login', { method: 'POST', body: JSON.stringify({ username: $('user').value, password: $('pass').value }) });
     store.set('emp_token', d.token); store.set('emp_user', $('user').value.trim()); $('pass').value = '';
-    loadHome();
+    await loadHome(); haptic();
   } catch (e) { msg('loginMsg', e.message, false); }
+  $('loginBtn').disabled = false;
 };
 $('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
 $('user').value = store.get('emp_user');
-
-function tick() {
-  const n = new Date();
-  $('clock').textContent = n.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ });
-  $('date').textContent = n.toLocaleDateString('ar-IQ', { weekday: 'long', month: 'long', day: 'numeric', timeZone: APP_TZ });
-}
-tick(); setInterval(tick, 1000);
 
 // ----- البصمة بدون نت -----
 const QKEY = 'punch_queue';
@@ -132,12 +218,10 @@ const queue = () => { try { return JSON.parse(store.get(QKEY) || '[]'); } catch 
 const saveQueue = (q) => store.set(QKEY, JSON.stringify(q));
 let syncing = false;
 function showOfflineBar() {
-  const q = queue();
-  const bar = $('offlineBar');
-  if (!q.length && navigator.onLine) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
-  const list = q.map((p) => `${p.action === 'in' ? 'حضور' : 'انصراف'} ${new Date(p.at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ })}`).join('، ');
-  bar.textContent = (navigator.onLine ? '' : 'ماكو نت. ') + (q.length ? `بصمات محفوظة بالموبايل وراح ترتفع وحدها من يرجع النت: ${list}` : 'البصمة راح تنحفظ بالموبايل وترتفع من يرجع النت.');
+  const q = queue(), bar = $('offlineBar');
+  if (!q.length && navigator.onLine) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  bar.textContent = (navigator.onLine ? '' : '📵 ماكو نت. ') + (q.length ? `${q.length} بصمة محفوظة بالتلفون وراح تصعد وحدها` : 'البصمة تنحفظ بالتلفون وتصعد من يرجع النت');
 }
 async function syncQueue() {
   if (syncing || !store.get('emp_token')) return;
@@ -145,16 +229,14 @@ async function syncQueue() {
   try {
     let q = queue();
     while (q.length) {
-      const p = q[0];
-      let r;
+      const p = q[0]; let r;
       try {
-        r = await fetch('api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
+        r = await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
           body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true }) });
-      } catch (e) { break; } // بعده ماكو نت
-      if (r.status === 401) break; // لازم يسجل دخول، نخليها بالانتظار
-      if (r.status >= 500) break;
+      } catch (e) { break; }
+      if (r.status === 401 || r.status >= 500) break;
       const d = await r.json().catch(() => ({}));
-      if (!d.duplicate) msg('msg', r.ok ? 'ارتفعت البصمة المحفوظة: ' + d.message : 'بصمة محفوظة ما انقبلت: ' + (d.error || ''), r.ok);
+      if (!d.duplicate) toast(r.ok ? '☁️ صعدت البصمة المحفوظة: ' + d.message : 'بصمة محفوظة ما انقبلت: ' + (d.error || ''), r.ok);
       q = queue().filter((x) => x.id !== p.id); saveQueue(q);
     }
   } finally { syncing = false; showOfflineBar(); }
@@ -164,74 +246,201 @@ window.addEventListener('online', () => { showOfflineBar(); syncQueue(); });
 window.addEventListener('offline', showOfflineBar);
 setInterval(syncQueue, 30000);
 
-function applyQueueToButtons(today) {
-  const q = queue();
-  const hasIn = !!today.check_in || q.some((p) => p.action === 'in');
-  const hasOut = !!today.check_out || q.some((p) => p.action === 'out');
-  $('btnIn').disabled = hasIn; $('btnOut').disabled = !hasIn || hasOut;
+function toast(text, ok) { $('msg').innerHTML = `<div class="toast ${ok ? 'ok' : 'err'}">${esc(text)}</div>`; }
+
+// ----- حالة زر البصمة -----
+function nextAction() {
+  const t = me?.today || {}, q = queue();
+  const hasIn = !!t.check_in || q.some((p) => p.action === 'in');
+  const hasOut = !!t.check_out || q.some((p) => p.action === 'out');
+  return !hasIn ? 'in' : !hasOut ? 'out' : null;
+}
+function paintPunch() {
+  const a = nextAction(), fp = $('fp');
+  fp.classList.toggle('out', a === 'out'); fp.classList.toggle('done', !a); fp.classList.remove('success');
+  fp.style.setProperty('--p', a ? 0 : 1);
+  $('punchLabel').textContent = a === 'in' ? 'اضغط مطوّلاً للحضور' : a === 'out' ? 'اضغط مطوّلاً للانصراف' : 'يومك خلص، عاشت إيدك 👏';
+  const t = me?.today || {};
+  $('todayLine').textContent = [t.check_in ? `حضور ${t5(t.check_in)}` : '', t.check_out ? `انصراف ${t5(t.check_out)}` : '', t.status && !t.check_in ? t.status : ''].filter(Boolean).join(' · ');
 }
 
-async function loadHome() {
-  let d;
-  try {
-    d = await api('api/me');
-    store.set('me_cache', JSON.stringify(d));
-  } catch (e) {
-    // ماكو نت: نعرض آخر نسخة محفوظة
-    const cached = store.get('me_cache');
-    if (!cached || navigator.onLine && !/fetch|network|Failed/i.test(e.message)) throw e;
-    d = JSON.parse(cached);
+// الضغط المطوّل: الحلقة تتعبى، ومن تكمل تنسجل البصمة
+const HOLD = 900; let holdT0 = 0, holdRaf = 0, holding = false;
+function holdStart(e) {
+  e.preventDefault();
+  if (!nextAction() || holding || $('fp').hasAttribute('disabled')) return;
+  holding = true; holdT0 = performance.now(); $('fp').classList.add('holding'); haptic(10);
+  const step = (t) => {
+    if (!holding) return;
+    const k = Math.min(1, (t - holdT0) / HOLD); $('fp').style.setProperty('--p', k);
+    if (k >= 1) { holding = false; $('fp').classList.remove('holding'); punch(nextAction()); return; }
+    holdRaf = requestAnimationFrame(step);
+  };
+  holdRaf = requestAnimationFrame(step);
+}
+function holdEnd() {
+  if (!holding) return;
+  holding = false; cancelAnimationFrame(holdRaf); $('fp').classList.remove('holding');
+  const fp = $('fp'), from = parseFloat(fp.style.getPropertyValue('--p')) || 0, t0 = performance.now();
+  const back = (t) => { const k = Math.min(1, (t - t0) / 250); fp.style.setProperty('--p', from * (1 - k)); if (k < 1) requestAnimationFrame(back); };
+  requestAnimationFrame(back);
+  if (from < 0.95) toast('خلّي إصبعك على البصمة لحد ما تتعبى الدائرة', false);
+}
+$('fp').addEventListener('pointerdown', holdStart);
+['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => $('fp').addEventListener(ev, holdEnd));
+$('fp').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { if (nextAction()) punch(nextAction()); } });
+$('fp').addEventListener('contextmenu', (e) => e.preventDefault());
+
+function celebrate() {
+  const fp = $('fp'); fp.classList.add('success'); haptic(40);
+  const rp = document.createElement('span'); rp.className = 'ripple'; fp.appendChild(rp); setTimeout(() => rp.remove(), 950);
+  const cols = ['#16a36a', '#2dd4a0', '#ffd166', '#3b7bf6', '#ff6b8b', '#a78bfa'];
+  for (let i = 0; i < 18; i++) {
+    const s = document.createElement('span'); s.className = 'spark';
+    const a = (i / 18) * Math.PI * 2, r = 110 + Math.random() * 50;
+    s.style.background = cols[i % cols.length]; s.style.setProperty('--x', Math.cos(a) * r + 'px'); s.style.setProperty('--y', Math.sin(a) * r + 'px');
+    fp.appendChild(s); setTimeout(() => s.remove(), 950);
   }
-  monthNow = d.month;
-  $('loginBox').classList.add('hidden'); $('home').classList.remove('hidden'); $('logout').classList.remove('hidden');
-  $('company').textContent = d.company_name;
-  const e = d.employee, s = d.summary;
-  $('empName').textContent = 'أهلاً ' + e.name;
-  $('empInfo').textContent = [e.job_title, e.department].filter(Boolean).join(' · ');
-  const t = d.today;
-  $('todayLine').textContent = `اليوم: ${t.status} · الحضور ${t5(t.check_in)} · الانصراف ${t5(t.check_out)}`;
-  applyQueueToButtons(t); showOfflineBar();
-  $('locNote').textContent = d.location_required ? 'البصمة مسموحة بس داخل مكان العمل، ولازم تسمح للمتصفح يوصل لموقعك.' : '';
-  $('sPresent').textContent = s.present_days; $('sLate').textContent = s.late_days; $('sAbsent').textContent = s.absent_days;
-  $('sLeave').textContent = s.paid_leave_days; $('sUnpaid').textContent = s.unpaid_leave_days; $('sOT').textContent = hrs(s.overtime_minutes);
-  $('pBase').textContent = money(s.base_salary); $('pAtt').textContent = money(s.attendance_pay);
-  $('pLate').textContent = '- ' + money(s.late_deduction);
-  $('pOT').textContent = '+ ' + money(s.overtime_pay); $('pNet').textContent = money(s.net_salary);
-  $('pAdj').textContent = `+ ${money(s.bonus)} / - ${money(s.advance)}`;
-  $("pShift").textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $("pShift").dir = "ltr"; $('pOTAfter').textContent = t5(e.overtime_after);
-  $('pOTRate').textContent = money(s.overtime_hour_rate);
-  $('pAllow').textContent = `${s.late_minutes} د / ${s.late_allowance} د`;
-  $('pLeaveBal').textContent = `${s.leave_balance} يوم`;
-  $('daysTable').innerHTML = '<tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>' +
-    d.days.map((r) => `<tr><td>${r.work_date}</td><td>${t5(r.check_in)}${r.in_offline ? ' 📵' : ''}</td><td>${t5(r.check_out)}${r.out_offline ? ' 📵' : ''}</td><td>${badge(r.status)}</td>
-      <td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td><td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
 }
 
 async function punch(action) {
-  $('btnIn').disabled = $('btnOut').disabled = true;
-  msg('msg', 'جاري تحديد موقعك والتسجيل...', true);
-  const at = Date.now(); // وقت الضغط على الزر
+  if (!action) return;
+  $('fp').setAttribute('disabled', ''); $('todayLine').textContent = '📍 جاري تحديد موقعك...';
+  const at = Date.now();
   const loc = await getLocation();
+  const done = (ok, text) => { $('fp').removeAttribute('disabled'); toast(text, ok); if (ok) { celebrate(); setTimeout(paintPunch, 1600); } else paintPunch(); };
   const queueIt = () => {
     saveQueue([...queue(), { id: at + '-' + Math.random().toString(36).slice(2), action, at, lat: loc.lat, lng: loc.lng }]);
-    msg('msg', `ماكو نت. انحفظت بصمة ${action === 'in' ? 'الحضور' : 'الانصراف'} بالموبايل، وراح ترتفع وحدها أول ما يرجع النت.`, true);
-    showOfflineBar(); applyQueueToButtons(JSON.parse(store.get('me_cache') || '{"today":{}}').today || {});
+    showOfflineBar();
+    done(true, `📵 ماكو نت. انحفظت بصمة ${action === 'in' ? 'الحضور' : 'الانصراف'} بالتلفون الساعة ${new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ })}، وراح تصعد وحدها من يرجع النت.`);
   };
   if (!navigator.onLine) return queueIt();
   let r;
   try {
-    r = await fetch('api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
+    r = await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
       body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng, offline_at: at }) });
-  } catch (e) { return queueIt(); } // انقطع النت أثناء الإرسال
+  } catch (e) { return queueIt(); }
   if (r.status === 401) { showLogin(); return; }
   const d = await r.json().catch(() => ({}));
-  msg('msg', r.ok ? d.message : (d.error || 'خطأ'), r.ok);
-  loadHome().catch(() => {});
+  if (r.ok && me) { me.today = { ...me.today, [action === 'in' ? 'check_in' : 'check_out']: new Date().toLocaleTimeString('en-GB', { timeZone: APP_TZ, hour12: false }) }; }
+  done(r.ok, r.ok ? d.message : (d.error || 'خطأ'));
+  if (r.ok) setTimeout(() => loadHome().catch(() => {}), 1700);
 }
-$('btnIn').onclick = () => punch('in');
-$('btnOut').onclick = () => punch('out');
-$('printBtn').onclick = () => window.open('payslip.html?me=1&month=' + monthNow, '_blank');
 
+// ----- الموقع -----
+function distM(a, b, c, d) { const R = 6371000, r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); }
+async function checkLocation() {
+  const w = me?.workplace; if (!w) { $('locChip').className = 'loc in'; $('locText').textContent = 'البصمة مفتوحة من أي مكان'; return; }
+  $('locChip').className = 'loc'; $('locText').textContent = 'نتأكد من موقعك...';
+  const l = await getLocation();
+  if (l.lat == null) { $('locText').textContent = 'اسمح للتطبيق يوصل لموقعك'; $('locChip').className = 'loc far'; return; }
+  const m = Math.round(distM(l.lat, l.lng, w.lat, w.lng));
+  const inside = m <= w.radius;
+  $('locChip').className = 'loc ' + (inside ? 'in' : 'far');
+  $('locText').textContent = inside ? `داخل مكان العمل · ${m} م` : `بعيد عن مكان العمل · ${m >= 1000 ? (m / 1000).toFixed(1) + ' كم' : m + ' م'}`;
+}
+
+// ----- شريط الدوام -----
+function drawTimeline() {
+  const e = me.employee, s = toMin(e.shift_start), en = toMin(e.shift_end), n = nowMin();
+  const pct = Math.max(0, Math.min(1, (n - s) / (en - s)));
+  $('tlFill').style.width = pct * 100 + '%';
+  $('tlStart').textContent = e.shift_start; $('tlEnd').textContent = e.shift_end;
+  const off = me.today?.status === 'عطلة';
+  $('tlMid').textContent = off ? 'اليوم عطلة، استمتع 🌴' : n < s ? `يبدي الدوام بعد ${hrs(s - n)}` : n > en ? 'خلص الدوام' : `باقي ${hrs(en - n)}`;
+  let marks = `<div class="tl-fill" id="tlFill" style="width:${pct * 100}%"></div>`;
+  if (off) marks = '';
+  if (!off && n >= s && n <= en) marks += `<span class="tl-mark now" style="right:${pct * 100}%"></span>`;
+  const ci = me.today?.check_in; if (ci) { const p2 = Math.max(0, Math.min(1, (toMin(ci) - s) / (en - s))); marks += `<span class="tl-mark" title="حضورك" style="right:${p2 * 100}%"></span>`; }
+  $('tlBar').innerHTML = marks;
+}
+
+// ----- السلسلة (أيام الالتزام) -----
+function streak(days) {
+  let n = 0;
+  for (const d of days) { // الأحدث أولاً
+    if (['عطلة', 'إجازة مدفوعة', 'لم يسجّل بعد', 'لم يأتِ بعد'].includes(d.status)) continue;
+    if (d.status === 'حاضر' || d.status === 'دوام بالعطلة') n++; else break;
+  }
+  return n;
+}
+
+// ----- التقويم -----
+const ST = { 'حاضر': 's-present', 'متأخر': 's-late', 'غائب': 's-absent', 'إجازة مدفوعة': 's-leave', 'إجازة بدون راتب': 's-absent', 'عطلة': 's-off', 'دوام بالعطلة': 's-extra' };
+function drawCalendar() {
+  const [y, m] = me.month.split('-').map(Number);
+  $('calTitle').textContent = `سجل ${MONTHS[m - 1]} ${y}`;
+  const byDate = Object.fromEntries(me.days.map((d) => [d.work_date, d]));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); // 0 الأحد
+  const lead = (first + 1) % 7; // الأسبوع يبدي السبت
+  let h = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'].map((x) => `<div class="h">${x}</div>`).join('');
+  for (let i = 0; i < lead; i++) h += '<div></div>';
+  for (let d = 1; d <= last; d++) {
+    const ds = `${me.month}-${String(d).padStart(2, '0')}`, r = byDate[ds];
+    const cls = r ? (ST[r.status] || '') : 's-future';
+    h += `<button class="c ${cls} ${ds === me.date ? 'today' : ''} ${ds === selDay ? 'sel' : ''}" data-d="${ds}">${d}</button>`;
+  }
+  $('cal').innerHTML = h;
+  $('cal').querySelectorAll('.c').forEach((b) => (b.onclick = () => { selDay = b.dataset.d; drawCalendar(); showDay(byDate[selDay], selDay); haptic(8); }));
+}
+function showDay(r, ds) {
+  const c = $('dayCard'); c.classList.remove('hidden');
+  if (!r) { c.innerHTML = `<b>${ds}</b><div class="muted2" style="margin-top:6px">بعده ما وصلنا لهذا اليوم.</div>`; return; }
+  c.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><b>${new Date(ds + 'T00:00:00Z').toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}</b><span class="pill ${ST[r.status] || ''}" style="color:inherit">${esc(r.status)}</span></div>
+    <div class="kv2"><span>الحضور</span><b class="num">${t5(r.check_in)}${r.in_offline ? ' 📵' : ''}</b></div>
+    <div class="kv2"><span>الانصراف</span><b class="num">${t5(r.check_out)}${r.out_offline ? ' 📵' : ''}</b></div>
+    <div class="kv2"><span>ساعات العمل</span><b>${hrs(r.worked_minutes)}</b></div>
+    ${r.late_minutes ? `<div class="kv2"><span>التأخير</span><b style="color:var(--amber)">${r.late_minutes} دقيقة</b></div>` : ''}
+    ${r.overtime_minutes ? `<div class="kv2"><span>الإضافي</span><b style="color:var(--violet)">${hrs(r.overtime_minutes)}</b></div>` : ''}
+    ${r.leave_note ? `<div class="muted2" style="margin-top:6px">${esc(r.leave_note)}</div>` : ''}`;
+}
+
+// ----- الراتب -----
+function animateSalary() {
+  if (!me) return;
+  const s = me.summary;
+  countUp($('pNet'), s.net_salary, (v) => Math.round(v).toLocaleString('en-US') + ' ' + CUR);
+  const max = Math.max(s.attendance_pay + s.overtime_pay + s.bonus, 1);
+  const row = (l, v, col, sign) => `<div class="row2"><div class="top"><span>${l}</span><b class="num" style="color:${col}">${sign}${money(v)}</b></div><div class="track"><div class="fill" style="background:${col}" data-w="${(v / max) * 100}"></div></div></div>`;
+  $('bars').innerHTML = row('أجر أيام الحضور', s.attendance_pay, 'var(--primary)', '') + row('الإضافي', s.overtime_pay, 'var(--violet)', '+ ') + row('المكافأة', s.bonus, 'var(--green)', '+ ') +
+    row('خصم التأخير', s.late_deduction, 'var(--amber)', '- ') + row('السلفة', s.advance, 'var(--red)', '- ');
+  requestAnimationFrame(() => setTimeout(() => $('bars').querySelectorAll('.fill').forEach((f) => (f.style.width = f.dataset.w + '%')), 30));
+}
+
+// ----- تحميل البيانات -----
+async function loadHome() {
+  let d;
+  try { d = await api('api/me'); store.set('me_cache', JSON.stringify(d)); }
+  catch (e) {
+    const cached = store.get('me_cache');
+    if (!cached || (navigator.onLine && !/fetch|network|Failed|Load failed/i.test(e.message))) throw e;
+    d = JSON.parse(cached);
+  }
+  me = d; monthNow = d.month;
+  if (IS_APP) scheduleAppReminders(d);
+  $('loginBox').classList.add('hidden'); $('home').classList.remove('hidden'); $('tabbar').classList.remove('hidden');
+  const e = d.employee, s = d.summary;
+  $('empName').textContent = e.name; $('meName').textContent = e.name; $('meUser').textContent = '@' + e.username;
+  $('avatar').textContent = (e.name || '؟').trim()[0];
+  $('empInfo').textContent = [e.job_title, e.department].filter(Boolean).join(' · ');
+  paintPunch(); showOfflineBar(); drawTimeline();
+  const st = streak(d.days);
+  $('streakCard').classList.toggle('hidden', st < 2); $('streakPill').classList.toggle('hidden', st < 2);
+  $('streakTitle').textContent = `${st} أيام على الوقت`; $('streakSub').textContent = 'كمّل وخلّي السلسلة تطول!'; $('streakPill').textContent = `🔥 ${st}`;
+  const workDays = d.days.filter((x) => !['عطلة', 'لم يأتِ بعد'].includes(x.status)).length || 1;
+  countUp($('sPresent'), s.present_days); setRing('rgAtt', (s.present_days / workDays) * 100);
+  countUp($('sLateMin'), s.late_minutes); $('sAllow').textContent = s.late_allowance; setRing('rgLate', s.late_allowance ? (s.late_minutes / s.late_allowance) * 100 : 0);
+  if (s.late_minutes > s.late_allowance) $('rgLate').style.setProperty('--col', 'var(--red)');
+  countUp($('sOT'), s.overtime_minutes / 60, (v) => v.toFixed(1)); setRing('rgOT', Math.min(100, (s.overtime_minutes / 60 / 20) * 100));
+  $('sAbsent').textContent = s.absent_days; $('sLeave').textContent = s.paid_leave_days; $('sLate').textContent = s.late_days;
+  const [y, m] = d.month.split('-').map(Number); $('pMonthName').textContent = `${MONTHS[m - 1]} ${y} · تقديري`;
+  $('pBase').textContent = money(s.base_salary); $('pShift').textContent = `${t5(e.shift_start)} - ${t5(e.shift_end)}`; $('pOTAfter').textContent = t5(e.overtime_after);
+  $('pLeaveBal').textContent = `${s.leave_balance} يوم`;
+  drawCalendar();
+  checkLocation();
+}
+$('printBtn').onclick = () => openPage('payslip.html?me=1&month=' + monthNow);
 $('pwBtn').onclick = async () => {
   try { await api('api/me/password', { method: 'POST', body: JSON.stringify({ old_password: $('oldPw').value, new_password: $('newPw').value }) });
     msg('pwMsg', 'تم تغيير كلمة المرور', true); $('oldPw').value = $('newPw').value = ''; }
@@ -240,36 +449,58 @@ $('pwBtn').onclick = async () => {
 
 // ----- التنبيهات -----
 let swReg = null;
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; refreshPush(); }).catch(() => {});
-function b64ToBytes(b64) {
-  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
-  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+if (!IS_APP && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; refreshPush(); }).catch(() => {});
+function b64ToBytes(b64) { const pad = '='.repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); }
+const LN = () => window.Capacitor?.Plugins?.LocalNotifications;
+// داخل التطبيق: التذكير من التلفون نفسه حسب وقت الدوام، ويشتغل بدون نت
+async function scheduleAppReminders(d) {
+  const ln = LN(); if (!ln || !d) return;
+  try {
+    if ((await ln.checkPermissions()).display !== 'granted') return;
+    const pending = await ln.getPending();
+    if (pending.notifications.length) await ln.cancel({ notifications: pending.notifications.map((n) => ({ id: n.id })) });
+    const e = d.employee, weekend = (d.weekend_days || '5').split(',').map(Number), list = [], now = Date.now();
+    for (let i = 0; i < 14; i++) {
+      const ds = new Date(now + i * 864e5).toLocaleDateString('en-CA', { timeZone: APP_TZ });
+      if (weekend.includes(new Date(ds + 'T00:00:00Z').getUTCDay())) continue;
+      const at = (hm, plus) => { const [h, m] = hm.split(':').map(Number); const t = new Date(`${ds}T00:00:00`); t.setHours(h, m + plus, 0, 0); return t; };
+      const a = at(e.shift_start, -10), b = at(e.shift_end, 10);
+      if (a > now) list.push({ id: 1000 + i * 2, title: 'لا تنسى تبصم حضور ⏰', body: `دوامك يبدي الساعة ${e.shift_start}`, schedule: { at: a } });
+      if (b > now) list.push({ id: 1001 + i * 2, title: 'لا تنسى تبصم انصراف 👋', body: `دوامك خلص الساعة ${e.shift_end}`, schedule: { at: b } });
+    }
+    if (list.length) await ln.schedule({ notifications: list });
+  } catch (x) {}
 }
+const setSwitch = (on) => { $('pushBtn').classList.toggle('on', on); $('pushBtn').disabled = on; };
 async function refreshPush() {
+  if (IS_APP) { const ln = LN(); if (!ln) { $('pushCard').classList.add('hidden'); return; } setSwitch((await ln.checkPermissions()).display === 'granted'); return; }
   if (!swReg || !('PushManager' in window)) {
     $('pushBtn').disabled = true;
-    $('pushNote').textContent = /iPhone|iPad/.test(navigator.userAgent)
-      ? 'بالآيفون: افتح البرنامج من Safari، اضغط زر المشاركة ثم "إضافة إلى الشاشة الرئيسية"، وافتحه من الأيقونة حتى تشتغل التنبيهات.'
-      : 'هذا المتصفح ما يدعم التنبيهات.';
+    $('pushNote').textContent = /iPhone|iPad/.test(navigator.userAgent) ? 'بالآيفون: من Safari اضغط مشاركة ثم «إضافة إلى الشاشة الرئيسية» وافتحه من الأيقونة.' : 'هذا المتصفح ما يدعم التنبيهات.';
     return;
   }
   const sub = await swReg.pushManager.getSubscription();
-  if (sub && Notification.permission === 'granted') { $('pushBtn').textContent = 'التنبيهات مفعّلة ✅'; $('pushBtn').disabled = true; }
+  setSwitch(!!(sub && Notification.permission === 'granted'));
 }
 $('pushBtn').onclick = async () => {
+  haptic();
+  if (IS_APP) {
+    const ln = LN(); if (!ln) return;
+    if ((await ln.requestPermissions()).display !== 'granted') return msg('pushMsg', 'لازم تسمح بالإشعارات من إعدادات التلفون', false);
+    await scheduleAppReminders(me); msg('pushMsg', 'تم تفعيل التذكير على هذا التلفون', true); return refreshPush();
+  }
   try {
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') return msg('pushMsg', 'لازم تسمح بالإشعارات من إعدادات المتصفح', false);
-    const { key } = await (await fetch('api/push/key')).json();
-    const sub = (await swReg.pushManager.getSubscription()) ||
-      (await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }));
+    const { key } = await (await fetch(BASE + 'api/push/key')).json();
+    const sub = (await swReg.pushManager.getSubscription()) || (await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }));
     await api('api/me/push', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
     msg('pushMsg', 'تم تفعيل التنبيهات على هذا الجهاز', true); refreshPush();
   } catch (e) { msg('pushMsg', 'تعذر تفعيل التنبيهات: ' + e.message, false); }
 };
+if (IS_APP) refreshPush();
 
-{ // دخول تلقائي (الشركة التجريبية أو التطبيق)
+{ // دخول تلقائي (الشركة التجريبية أو بعد التسجيل)
   const m = /emp=([a-f0-9]{48})/.exec(location.hash);
   if (m) { store.set('emp_token', m[1]); history.replaceState(null, '', location.pathname); }
 }

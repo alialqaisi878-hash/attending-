@@ -1,6 +1,12 @@
 // أدوات مشتركة للواجهات
 // كل شركة إلها رابط: /رمز-الشركة/ ، والبيانات المحفوظة بالمتصفح منفصلة لكل شركة
-const SLUG = location.pathname.split('/')[1] || '';
+// داخل تطبيق التلفون (أندرويد/آيفون) الصفحات محفوظة بالتطبيق نفسه، والشركة والسيرفر محفوظين بالتطبيق
+const IS_APP = !!window.HUDOOR_SERVER;
+const SLUG = IS_APP ? (localStorage.getItem('app_company') || '') : (location.pathname.split('/')[1] || '');
+const BASE = IS_APP ? `${window.HUDOOR_SERVER}/${SLUG}/` : '';
+if (IS_APP && !SLUG && !/start\.html$/.test(location.pathname)) location.replace('start.html');
+// صفحة ثانية (مثل فورمة الراتب): بالتطبيق تنفتح بنفس الشاشة
+function openPage(u) { if (IS_APP) location.href = u; else window.open(u, '_blank'); }
 let APP_TZ = 'Asia/Baghdad', CUR = 'د.ع';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -9,7 +15,7 @@ const hrs = (m) => (m == null ? '—' : `${Math.floor(m / 60)}س ${m % 60}د`);
 const money = (n) => Number(n || 0).toLocaleString('en-US') + ' ' + CUR;
 const badge = (s) => `<span class="badge b-${s}">${s}</span>`;
 const mapLink = (lat, lng) => (lat != null ? ` <a class="loc" target="_blank" href="https://maps.google.com/?q=${lat},${lng}">📍</a>` : '');
-const skey = (k) => (k === 'device_id' ? k : SLUG + ':' + k);
+const skey = (k) => (k === 'device_id' || k === 'app_company' ? k : SLUG + ':' + k);
 const store = {
   get: (k) => { try { return localStorage.getItem(skey(k)) || ''; } catch (e) { return ''; } },
   set: (k, v) => { try { localStorage.setItem(skey(k), v); } catch (e) {} },
@@ -27,7 +33,7 @@ function deviceId() {
 }
 function makeApi(tokenKey, onUnauthorized) {
   return async (url, opts = {}) => {
-    const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get(tokenKey), 'X-Device-Id': deviceId() } });
+    const r = await fetch(BASE + url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get(tokenKey), 'X-Device-Id': deviceId() } });
     if (r.status === 401 && !url.endsWith('/login')) { onUnauthorized(); throw new Error('سجّل دخول من جديد'); }
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'خطأ');
@@ -53,14 +59,14 @@ function applyInfo(i) {
   }
   document.querySelectorAll('.company-name').forEach((el) => { el.textContent = i.company_name; });
   document.querySelectorAll('.company-logo').forEach((el) => {
-    if (i.has_logo) { el.src = 'logo'; el.classList.remove('hidden'); } else el.classList.add('hidden');
+    if (i.has_logo) { el.src = BASE + 'logo'; el.classList.remove('hidden'); } else el.classList.add('hidden');
   });
   const bar = document.getElementById('subBar');
   if (bar) { bar.textContent = i.subscription_message || ''; bar.classList.toggle('hidden', !i.subscription_message); }
 }
 async function loadInfo() {
   let i = null;
-  try { i = await (await fetch('api/info')).json(); store.set('info', JSON.stringify(i)); }
+  try { i = await (await fetch(BASE + 'api/info')).json(); store.set('info', JSON.stringify(i)); }
   catch (e) { try { i = JSON.parse(store.get('info') || 'null'); } catch (x) {} }
   applyInfo(i);
   return i || {};

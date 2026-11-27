@@ -1,0 +1,23 @@
+{
+  "name": "hudoor-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "تطبيق أندرويد وآيفون لبرنامج الحضور (نفس صفحات البرنامج محفوظة داخل التطبيق)",
+  "scripts": {
+    "www": "node scripts/build-www.js",
+    "android": "node scripts/build-www.js && (test -d android || npx cap add android) && node scripts/patch-native.js && npx cap sync android",
+    "ios": "node scripts/build-www.js && (test -d ios || npx cap add ios) && node scripts/patch-native.js && npx cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.3",
+    "@capacitor/barcode-scanner": "3.1.4",
+    "@capacitor/core": "8.6.3",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/ios": "8.6.3",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/splash-screen": "8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.3"
+  }
+}

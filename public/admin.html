@@ -43,7 +43,7 @@
       </div>
       <div class="card hello" id="shareCard"><div><b>رابط البرنامج للموظفين</b><div class="muted">دزّه للموظفين أو خليهم يصوّرون الـ QR من التطبيق، ويدخلون باليوزر اللي تسويه إلهم من تبويب الموظفين. رمز شركتكم: <b dir="ltr" class="slugCode"></b></div>
         <div dir="ltr" style="margin-top:6px;font-weight:700" id="shareLink"></div><button class="secondary small-btn" style="margin-top:8px" id="shareBtn">نسخ الرابط</button></div>
-        <div style="text-align:center"><img src="qr.svg" alt="QR" style="width:130px;height:130px"><div class="muted">الموظف يصوّره من التطبيق</div></div></div>
+        <div style="text-align:center"><img id="qrImg" alt="QR" style="width:130px;height:130px"><div class="muted">الموظف يصوّره من التطبيق</div></div></div>
       <div class="card"><div class="muted" id="todayDate"></div><div class="table-wrap"><table id="todayTable"></table></div></div>
     </section>
 
@@ -408,12 +408,12 @@ async function loadPayroll() {
     line('(+) المكافآت', totals.bonus) + line('إجمالي الرواتب المستحقة', totals.gross_salary) + line('(-) السلف المستقطعة', totals.advance) + line('صافي الرواتب المدفوعة', totals.net_salary, true);
 }
 $('pCsv').onclick = async () => {
-  const r = await fetch('api/admin/payroll.csv?month=' + $('pMonth').value, { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  const r = await fetch(BASE + 'api/admin/payroll.csv?month=' + $('pMonth').value, { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
   if (!r.ok) return alert('حدد الشهر');
   const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `payroll_${$('pMonth').value}.csv`; a.click();
 };
 $('pMonth').onchange = loadPayroll;
-window.printSlip = (id) => window.open(`payslip.html?employee_id=${id}&month=${$('pMonth').value}`, '_blank');
+window.printSlip = (id) => openPage(`payslip.html?employee_id=${id}&month=${$('pMonth').value}`);
 
 // ----- التقارير -----
 function rangeQuery() { return `from=${$('rFrom').value}&to=${$('rTo').value}&employee_id=${$('rEmp').value}`; }
@@ -427,7 +427,7 @@ $('rRun').onclick = async () => {
   } catch (e) { $('rSummary').textContent = e.message; }
 };
 $('rCsv').onclick = async () => {
-  const r = await fetch('api/admin/report.csv?' + rangeQuery(), { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  const r = await fetch(BASE + 'api/admin/report.csv?' + rangeQuery(), { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
   if (!r.ok) return alert('حدد فترة صحيحة');
   const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
   a.download = `attendance_${$('rFrom').value}_${$('rTo').value}.csv`; a.click();
@@ -545,7 +545,8 @@ async function start() {
   else if (sub.trial) warn = `أنتم على التجربة المجانية (${sub.max_employees} موظف) لحد ${sub.expires_at}.`;
   $('warnBar').classList.toggle('hidden', !warn); if (warn) $('warnBar').innerHTML = esc(warn) + up;
   $('adminPwCard').classList.toggle('hidden', role !== 'admin');
-  $('shareLink').textContent = location.origin + '/' + SLUG + '/'; document.querySelectorAll('.slugCode').forEach((e) => (e.textContent = SLUG));
+  $('qrImg').src = BASE + 'qr.svg';
+  $('shareLink').textContent = (IS_APP ? window.HUDOOR_SERVER : location.origin) + '/' + SLUG + '/'; document.querySelectorAll('.slugCode').forEach((e) => (e.textContent = SLUG));
   $('shareBtn').onclick = async () => { try { await navigator.clipboard.writeText($('shareLink').textContent); $('shareBtn').textContent = 'تم النسخ ✅'; } catch (e) { prompt('انسخ الرابط:', $('shareLink').textContent); } };
   const acc = role === 'accountant';
   $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';

@@ -138,6 +138,20 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
+// تطبيق التلفون (أندرويد/آيفون) يكلّم السيرفر من داخل التطبيق
+const APP_ORIGINS = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost', ...(process.env.EXTRA_ORIGINS || '').split(',').filter(Boolean)]);
+app.use((req, res, next) => {
+  const o = req.headers.origin;
+  if (o && APP_ORIGINS.has(o)) {
+    res.setHeader('Access-Control-Allow-Origin', o);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-Id');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 
 // الصفحة الرئيسية للبرنامج (تعريف + دخول برمز الشركة)

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>بصمة</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .sky.intro { padding-bottom: 110px; text-align: center; min-height: 52vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .scan { position: relative; width: 128px; height: 128px; border-radius: 38px; display: grid; place-items: center;
+    background: rgba(255,255,255,.16); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.35);
+    animation: pop .8s var(--ease) both; overflow: hidden; }
+  .scan svg { width: 78px; height: 78px; color: #fff; }
+  .scan svg path { stroke-dasharray: 120; stroke-dashoffset: 120; animation: draw 2.2s var(--ease) forwards; }
+  .scan svg path:nth-child(2) { animation-delay: .15s } .scan svg path:nth-child(3) { animation-delay: .3s }
+  .scan svg path:nth-child(4) { animation-delay: .45s } .scan svg path:nth-child(5) { animation-delay: .6s } .scan svg path:nth-child(6) { animation-delay: .75s }
+  .scan::after { content: ''; position: absolute; left: 10px; right: 10px; height: 3px; border-radius: 3px; top: 12px;
+    background: linear-gradient(90deg, transparent, #9ff5d2, transparent); box-shadow: 0 0 14px #5ef0b8; animation: sweep 2.4s ease-in-out 1s infinite; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes sweep { 0%, 100% { top: 12px; opacity: 0; } 10%, 90% { opacity: 1; } 50% { top: 112px; } }
+  @keyframes pop { from { transform: scale(.6) rotate(-8deg); opacity: 0; } }
+  .intro h1 { position: relative; margin: 18px 0 6px; font-size: 34px; letter-spacing: -.5px; animation: up .7s .2s var(--ease) both; }
+  .intro p { position: relative; margin: 0; font-size: 16px; opacity: .92; animation: up .7s .35s var(--ease) both; }
+  .rot { display: inline-block; min-width: 4.5em; font-weight: 700; color: #fff6c9; transition: opacity .35s, transform .35s; }
+  .rot.out { opacity: 0; transform: translateY(-8px); }
+  @keyframes up { from { opacity: 0; transform: translateY(16px); } }
+  .wrap .panel { animation: up .6s var(--ease) both; }
+  .wrap .panel:nth-child(2) { animation-delay: .12s } .wrap .panel:nth-child(3) { animation-delay: .24s }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 14px 0 8px; }
+  .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .joinrow { display: flex; gap: 8px; }
+  .joinrow input { flex: 1; min-width: 0; padding: 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 17px; outline: none; text-align: center; letter-spacing: .5px; }
+  .joinrow input:focus { border-color: var(--primary); }
+  .joinrow .btn { width: auto; padding: 14px 22px; }
+  .btn.grad { background: linear-gradient(135deg, #16a36a, #1f6feb); box-shadow: 0 12px 26px -12px #1f6feb; }
+  .demos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .demo { padding: 16px 10px; border-radius: 18px; background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 15px; border: 1px solid var(--line); transition: transform .15s; }
+  .demo:active { transform: scale(.97); }
+  .demo span { display: block; font-size: 28px; margin-bottom: 4px; }
+  .lead { color: var(--muted); font-size: 14px; margin: -4px 0 14px; }
+</style>
+</head>
+<body>
+<section class="sky intro day" id="sky">
+  <div class="orb-sun"></div><div class="stars" id="stars"></div>
+  <div class="scan">
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+      <path d="M18 26a14 14 0 0 1 28 0v6"/><path d="M24 44c2-4 2-9 2-14a6 6 0 0 1 12 0c0 6-1 12-4 17"/><path d="M32 30c0 8-1 15-6 22"/>
+      <path d="M12 38c1-4 1-8 1-12a19 19 0 0 1 32-14"/><path d="M50 22c1 3 1 6 1 10 0 7-1 13-3 18"/><path d="M40 36c0 6-1 12-3 17"/>
+    </svg>
+  </div>
+  <h1 id="pname">بصمة</h1>
+  <p>حضورك <span class="rot" id="rot">من تلفونك</span></p>
+  <svg class="waves" viewBox="0 0 1440 120" preserveAspectRatio="none"><path d="M0,64 C240,120 480,0 720,40 C960,80 1200,120 1440,56 L1440,120 L0,120 Z"></path></svg>
+</section>
+<div class="wrap">
+  <div class="panel" id="joinBox">
+    <h3>دخول شركتي</h3>
+    <button class="btn grad" id="scanBtn">📷 صوّر QR الشركة</button>
+    <div class="or" id="orLine">أو اكتب رمز الشركة</div>
+    <div class="joinrow"><input id="code" dir="ltr" autocapitalize="off" autocomplete="off" placeholder="company"><button class="btn" id="goBtn">دخول</button></div>
+    <div class="msg" id="joinMsg"></div>
+  </div>
+  <div class="panel">
+    <h3>صاحب شركة؟</h3>
+    <p class="lead" id="trialNote">سجّل شركتك وجرّب مجاناً.</p>
+    <button class="btn grad" id="showSignup">سجّل شركتك مجاناً ✨</button>
+    <div id="signupBox" class="hidden">
+      <div class="field"><label for="suName">اسم الشركة</label><input id="suName"></div>
+      <div class="field"><label for="suContact">اسمك</label><input id="suContact"></div>
+      <div class="field"><label for="suPhone">رقم التلفون (واتساب)</label><input id="suPhone" dir="ltr" inputmode="tel" placeholder="07xxxxxxxxx"></div>
+      <div class="field"><label for="suPass">باسورد المدير (8 أحرف أو أكثر)</label><input id="suPass" type="password" dir="ltr" autocomplete="new-password"></div>
+      <button class="btn grad" style="margin-top:16px" id="suBtn">ابدأ التجربة</button>
+      <div class="msg" id="suMsg"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>جرّبه قبل ما تسجّل</h3>
+    <p class="lead">شركة تجريبية فيها موظفين وبصمات ورواتب حقيقية الشكل.</p>
+    <div class="demos"><button class="demo" id="demoEmp"><span>📱</span>كموظف</button><button class="demo" id="demoAdmin"><span>👀</span>كمدير</button></div>
+  </div>
+</div>
+<script src="app-config.js"></script>
+<script>
+const S = window.HUDOOR_SERVER;
+const $ = (id) => document.getElementById(id);
+function msg(id, t, ok) { const m = $(id); m.textContent = t; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+const setCompany = (slug) => localStorage.setItem('app_company', slug);
+const q = new URLSearchParams(location.search);
+// إذا الشركة محفوظة ندخل عليها مباشرة
+if (localStorage.getItem('app_company') && !q.get('change')) location.replace('index.html');
+
+fetch(S + '/api/product').then((r) => r.json()).then((p) => { $('pname').textContent = p.product_name; }).catch(() => {});
+fetch(S + '/api/plans').then((r) => r.json()).then((d) => {
+  $('trialNote').textContent = `تجربة مجانية ${d.trial_days} يوم على ${d.trial_employees === 1 ? 'موظف واحد' : d.trial_employees + ' موظفين'}، بدون أي دفع.`;
+}).catch(() => {});
+
+async function join(raw) {
+  // الـ QR فيه رابط الشركة (https://.../رمز-الشركة/)، أو يكتب الرمز بس
+  let slug = String(raw || '').trim().toLowerCase();
+  try { if (/^https?:/.test(slug)) slug = new URL(slug).pathname.split('/').filter(Boolean)[0] || ''; } catch (e) {}
+  slug = slug.replace(/[^a-z0-9-]/g, '');
+  if (!slug) return msg('joinMsg', 'اكتب رمز الشركة', false);
+  try {
+    const r = await fetch(S + '/api/company/' + encodeURIComponent(slug));
+    if (!r.ok) return msg('joinMsg', 'رمز الشركة غير موجود. تأكد منه ويا المدير.', false);
+    setCompany(slug); location.replace('index.html');
+  } catch (e) { msg('joinMsg', 'ماكو اتصال بالإنترنت. أول دخول يحتاج نت.', false); }
+}
+$('goBtn').onclick = () => join($('code').value);
+$('code').onkeydown = (e) => { if (e.key === 'Enter') join($('code').value); };
+const scanner = () => window.Capacitor?.Plugins?.CapacitorBarcodeScanner;
+if (!scanner()) { $('scanBtn').classList.add('hidden'); $('orLine').classList.add('hidden'); }
+$('scanBtn').onclick = async () => {
+  try { const r = await scanner().scanBarcode({ hint: 0, scanInstructions: 'صوّر QR الشركة من لوحة المدير' }); if (r?.ScanResult) join(r.ScanResult); }
+  catch (e) { msg('joinMsg', 'ما انقرأ الكود. اكتب رمز الشركة بدلاً منه.', false); }
+};
+$('showSignup').onclick = () => { $('signupBox').classList.remove('hidden'); $('showSignup').classList.add('hidden'); };
+$('suBtn').onclick = async () => {
+  $('suBtn').disabled = true;
+  try {
+    const r = await fetch(S + '/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_name: $('suName').value, contact_name: $('suContact').value, phone: $('suPhone').value, password: $('suPass').value }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || 'خطأ');
+    setCompany(d.slug); location.replace('admin.html#support=' + d.token);
+  } catch (e) { msg('suMsg', e.message === 'Failed to fetch' ? 'ماكو اتصال بالإنترنت' : e.message, false); $('suBtn').disabled = false; }
+};
+async function demo(as) {
+  try {
+    const d = await (await fetch(S + '/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ as }) })).json();
+    setCompany(d.slug); location.replace(as === 'employee' ? 'index.html#emp=' + d.token : 'admin.html#support=' + d.token);
+  } catch (e) { msg('joinMsg', 'ماكو اتصال بالإنترنت', false); }
+}
+// سماء حسب الوقت + نجوم + كلمات تتبدل
+(() => {
+  const h = new Date().getHours();
+  $('sky').className = 'sky intro ' + (h < 5 || h >= 19 ? 'night' : h < 8 ? 'dawn' : h < 17 ? 'day' : 'dusk');
+  $('stars').innerHTML = Array.from({ length: 24 }, () => `<i style="top:${Math.random() * 70}%;left:${Math.random() * 100}%;animation-delay:${Math.random() * 3}s"></i>`).join('');
+  const words = ['من تلفونك', 'بمكان العمل', 'حتى بدون نت', 'وراتبك قدامك'];
+  let i = 0;
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(() => {
+    const r = $('rot'); r.classList.add('out');
+    setTimeout(() => { i = (i + 1) % words.length; r.textContent = words[i]; r.classList.remove('out'); }, 350);
+  }, 2400);
+})();
+$('demoAdmin').onclick = () => demo('admin');
+$('demoEmp').onclick = () => demo('employee');
+</script>
+</body>
+</html>
