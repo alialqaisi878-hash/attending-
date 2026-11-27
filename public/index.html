@@ -63,6 +63,12 @@
         <div id="msg"></div>
       </div>
 
+      <div class="panel visits hidden" id="visitCard">
+        <div class="v-head"><h3>📍 مواقع العمل</h3><span class="muted2" id="vCount"></span></div>
+        <div id="vNow"></div>
+        <ol class="v-list" id="vList"></ol>
+      </div>
+
       <div class="streak hidden" id="streakCard"><span class="f">🔥</span><div><b id="streakTitle"></b><span id="streakSub" style="font-size:13px;opacity:.9"></span></div></div>
 
       <div class="panel">
@@ -221,7 +227,7 @@ function showOfflineBar() {
   const q = queue(), bar = $('offlineBar');
   if (!q.length && navigator.onLine) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  bar.textContent = (navigator.onLine ? '' : '📵 ماكو نت. ') + (q.length ? `${q.length} بصمة محفوظة بالتلفون وراح تصعد وحدها` : 'البصمة تنحفظ بالتلفون وتصعد من يرجع النت');
+  bar.textContent = (navigator.onLine ? '' : '📵 ماكو نت. ') + (q.length ? `${q.length} ${q.length === 1 ? 'شي محفوظ' : 'أشياء محفوظة'} بالتلفون وراح تصعد وحدها` : 'البصمة تنحفظ بالتلفون وتصعد من يرجع النت');
 }
 async function syncQueue() {
   if (syncing || !store.get('emp_token')) return;
@@ -231,12 +237,12 @@ async function syncQueue() {
     while (q.length) {
       const p = q[0]; let r;
       try {
-        r = await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
+        r = p.kind === 'visit' ? await sendVisit(p, true) : await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
           body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true }) });
       } catch (e) { break; }
       if (r.status === 401 || r.status >= 500) break;
       const d = await r.json().catch(() => ({}));
-      if (!d.duplicate) toast(r.ok ? '☁️ صعدت البصمة المحفوظة: ' + d.message : 'بصمة محفوظة ما انقبلت: ' + (d.error || ''), r.ok);
+      if (!d.duplicate) toast(r.ok ? '☁️ صعد المحفوظ: ' + d.message : 'شي محفوظ ما انقبل: ' + (d.error || ''), r.ok);
       q = queue().filter((x) => x.id !== p.id); saveQueue(q);
     }
   } finally { syncing = false; showOfflineBar(); }
@@ -251,8 +257,8 @@ function toast(text, ok) { $('msg').innerHTML = `<div class="toast ${ok ? 'ok' :
 // ----- حالة زر البصمة -----
 function nextAction() {
   const t = me?.today || {}, q = queue();
-  const hasIn = !!t.check_in || q.some((p) => p.action === 'in');
-  const hasOut = !!t.check_out || q.some((p) => p.action === 'out');
+  const hasIn = !!t.check_in || q.some((p) => p.action === 'in' && p.kind !== 'visit');
+  const hasOut = !!t.check_out || q.some((p) => p.action === 'out' && p.kind !== 'visit');
   return !hasIn ? 'in' : !hasOut ? 'out' : null;
 }
 function paintPunch() {
@@ -330,26 +336,97 @@ async function punch(action) {
 // ----- الموقع -----
 function distM(a, b, c, d) { const R = 6371000, r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); }
 async function checkLocation() {
-  const w = me?.workplace; if (!w) { $('locChip').className = 'loc in'; $('locText').textContent = 'البصمة مفتوحة من أي مكان'; return; }
+  const spots = [...(me?.workplace ? [{ name: 'مكان العمل', ...me.workplace }] : []), ...(me?.sites || [])];
+  if (!spots.length) { $('locChip').className = 'loc in'; $('locText').textContent = 'البصمة مفتوحة من أي مكان'; renderVisits(); return; }
   $('locChip').className = 'loc'; $('locText').textContent = 'نتأكد من موقعك...';
-  const l = await getLocation();
-  if (l.lat == null) { $('locText').textContent = 'اسمح للتطبيق يوصل لموقعك'; $('locChip').className = 'loc far'; return; }
-  const m = Math.round(distM(l.lat, l.lng, w.lat, w.lng));
-  const inside = m <= w.radius;
+  const l = await getLocation(); lastLoc = l;
+  if (l.lat == null) { $('locText').textContent = 'اسمح للتطبيق يوصل لموقعك'; $('locChip').className = 'loc far'; renderVisits(); return; }
+  const near = spots.map((x) => ({ ...x, d: Math.round(distM(l.lat, l.lng, x.lat, x.lng)) })).sort((a, b) => a.d - b.d)[0];
+  const inside = near.d <= near.radius;
   $('locChip').className = 'loc ' + (inside ? 'in' : 'far');
-  $('locText').textContent = inside ? `داخل مكان العمل · ${m} م` : `بعيد عن مكان العمل · ${m >= 1000 ? (m / 1000).toFixed(1) + ' كم' : m + ' م'}`;
+  const km = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + ' كم' : m + ' م');
+  $('locText').textContent = inside ? `داخل ${near.name} · ${near.d} م` : `بعيد عن ${spots.length > 1 ? 'أقرب موقع (' + near.name + ')' : 'مكان العمل'} · ${km(near.d)}`;
+  renderVisits();
+}
+
+// ----- زيارات المواقع (للفنيين) -----
+let lastLoc = {}, vTimer = 0;
+const VDRAFT = 'visit_report_draft';
+// وقت مكتوب بتوقيت الشركة -> لحظة حقيقية (حتى لو توقيت التلفون غير)
+function tzTime(date, time) {
+  const nowCo = Date.parse(new Date().toLocaleString('sv-SE', { timeZone: APP_TZ }).replace(' ', 'T') + 'Z');
+  return Date.now() - (nowCo - Date.parse(`${date}T${time}Z`));
+}
+function nearestSite(l) {
+  if (!me?.sites?.length || l.lat == null) return null;
+  return me.sites.map((x) => ({ ...x, d: Math.round(distM(l.lat, l.lng, x.lat, x.lng)) })).sort((a, b) => a.d - b.d)[0];
+}
+function renderVisits() {
+  const card = $('visitCard');
+  if (!me?.sites?.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const ov = me.open_visit, list = me.today_visits || [];
+  clearInterval(vTimer);
+  if (ov) {
+    $('vNow').innerHTML = `<div class="v-open"><div class="v-pulse"></div><div><div class="muted2">أنت هسة بموقع</div><b>${esc(ov.site_name)}</b>
+        <div class="v-timer num" id="vTimer"></div></div></div>
+      <textarea id="vReport" rows="3" placeholder="شنو سويت بالموقع؟ اكتب تقرير قصير..."></textarea>
+      <div class="v-chips">${['صيانة', 'تركيب', 'فحص', 'تسليم مواد', 'متابعة'].map((c) => `<button class="chip" data-c="${c}">${c}</button>`).join('')}</div>
+      <button class="btn v-leave" id="vLeave">طلعت من الموقع</button>`;
+    $('vReport').value = store.get(VDRAFT) || '';
+    $('vReport').oninput = () => store.set(VDRAFT, $('vReport').value);
+    document.querySelectorAll('.v-chips .chip').forEach((b) => (b.onclick = () => { const t = $('vReport'); t.value = (t.value ? t.value.trim() + ' · ' : '') + b.dataset.c + ' '; t.focus(); store.set(VDRAFT, t.value); haptic(6); }));
+    const t0 = ov._local || tzTime(ov.work_date, ov.arrived_at);
+    const tick = () => { const m = Math.max(0, Math.floor((Date.now() - t0) / 1000)); const el = $('vTimer'); if (el) el.textContent = `${String(Math.floor(m / 3600)).padStart(2, '0')}:${String(Math.floor(m / 60) % 60).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+    tick(); vTimer = setInterval(tick, 1000);
+    $('vLeave').onclick = () => visit('leave');
+  } else {
+    const n = nearestSite(lastLoc);
+    const inside = n && n.d <= n.radius;
+    $('vNow').innerHTML = `<div class="v-near ${inside ? 'in' : ''}">${n ? (inside ? `🎯 أنت داخل <b>${esc(n.name)}</b>` : `أقرب موقع: <b>${esc(n.name)}</b> · ${n.d >= 1000 ? (n.d / 1000).toFixed(1) + ' كم' : n.d + ' م'}`) : 'نحدد أقرب موقع...'}</div>
+      <button class="btn v-arrive" id="vArrive">وصلت للموقع</button>`;
+    $('vArrive').onclick = () => visit('arrive');
+  }
+  $('vCount').textContent = list.length ? `${list.length} زيارة اليوم` : '';
+  $('vList').innerHTML = list.filter((v) => v.left_at).map((v) => `<li><span class="dot"></span><div><b>${esc(v.site_name)}</b>
+    <div class="muted2">من <span class="num">${t5(v.arrived_at)}</span> لحد <span class="num">${t5(v.left_at)}</span> · ${hrs(v.minutes)}${v.arr_offline || v.left_offline ? ' · بدون نت' : ''}</div>
+    ${v.report ? `<div class="v-rep">${esc(v.report)}</div>` : ''}</div></li>`).join('');
+}
+async function visit(action) {
+  const btn = action === 'arrive' ? $('vArrive') : $('vLeave');
+  const report = action === 'leave' ? $('vReport').value.trim() : '';
+  if (action === 'leave' && report.length < 3) { toast('اكتب تقرير قصير عن الشغل قبل ما تطلع', false); $('vReport').focus(); return; }
+  btn.disabled = true; btn.textContent = '📍 نحدد موقعك...';
+  const at = Date.now(), loc = await getLocation(); lastLoc = loc;
+  const n = nearestSite(loc);
+  const item = { kind: 'visit', id: at + '-' + Math.random().toString(36).slice(2), action, at, lat: loc.lat, lng: loc.lng, report, site_id: n?.id };
+  const localApply = () => {
+    if (action === 'arrive') me.open_visit = { site_name: n?.name || 'الموقع', work_date: '', arrived_at: '', _local: at };
+    else { (me.today_visits ||= []).push({ ...me.open_visit, left_at: new Date(at).toLocaleTimeString('en-GB', { timeZone: APP_TZ, hour12: false }), arrived_at: me.open_visit.arrived_at || new Date(me.open_visit._local).toLocaleTimeString('en-GB', { timeZone: APP_TZ, hour12: false }), minutes: Math.round((at - (me.open_visit._local || tzTime(me.open_visit.work_date, me.open_visit.arrived_at))) / 60000), report, left_offline: 1 }); me.open_visit = null; store.del(VDRAFT); }
+  };
+  const queueIt = () => { saveQueue([...queue(), item]); showOfflineBar(); localApply(); renderVisits(); toast(`📵 ماكو نت. انحفظ ${action === 'arrive' ? 'وصولك' : 'خروجك وتقريرك'} بالتلفون وراح يصعد وحده من يرجع النت.`, true); haptic(30); };
+  if (!navigator.onLine) return queueIt();
+  let r;
+  try { r = await sendVisit(item, false); } catch (e) { return queueIt(); }
+  if (r.status === 401) { showLogin(); return; }
+  const d = await r.json().catch(() => ({}));
+  toast(r.ok ? d.message : (d.error || 'خطأ'), r.ok);
+  if (r.ok) { haptic(30); if (action === 'leave') store.del(VDRAFT); await loadHome().catch((e) => console.error('reload', e)); renderVisits(); } else renderVisits();
+}
+function sendVisit(p, queued) {
+  return fetch(BASE + 'api/visit', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
+    body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued, report: p.report, client_id: p.id, site_id: p.site_id }) });
 }
 
 // ----- شريط الدوام -----
 function drawTimeline() {
   const e = me.employee, s = toMin(e.shift_start), en = toMin(e.shift_end), n = nowMin();
   const pct = Math.max(0, Math.min(1, (n - s) / (en - s)));
-  $('tlFill').style.width = pct * 100 + '%';
   $('tlStart').textContent = e.shift_start; $('tlEnd').textContent = e.shift_end;
   const off = me.today?.status === 'عطلة';
   $('tlMid').textContent = off ? 'اليوم عطلة، استمتع 🌴' : n < s ? `يبدي الدوام بعد ${hrs(s - n)}` : n > en ? 'خلص الدوام' : `باقي ${hrs(en - n)}`;
   let marks = `<div class="tl-fill" id="tlFill" style="width:${pct * 100}%"></div>`;
-  if (off) marks = '';
+  if (off) marks = '<div class="tl-fill" id="tlFill" style="width:0"></div>';
   if (!off && n >= s && n <= en) marks += `<span class="tl-mark now" style="right:${pct * 100}%"></span>`;
   const ci = me.today?.check_in; if (ci) { const p2 = Math.max(0, Math.min(1, (toMin(ci) - s) / (en - s))); marks += `<span class="tl-mark" title="حضورك" style="right:${p2 * 100}%"></span>`; }
   $('tlBar').innerHTML = marks;

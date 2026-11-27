@@ -265,3 +265,36 @@ test('each punch is sent to the webhook, and a broken webhook never blocks a pun
 });
 
 test('reminder tick runs', async () => { await tick(); });
+
+test('work sites: technician punches at any of his sites, logs arrive/leave with a report', async () => {
+  const site = async (name, lat, lng) => (await (await post('/acme/api/admin/sites', { name, lat, lng, radius: 150 }, adminToken)).json()).id;
+  const s1 = await site('موقع الكرادة', 33.3062, 44.4209), s2 = await site('موقع المنصور', 33.3203, 44.3497);
+  assert.equal((await post('/acme/api/admin/sites', { name: 'x', lat: 0, lng: 0 }, adminToken)).status, 400);
+  assert.ok((await post('/acme/api/admin/employees', { username: 'tech', name: 'فني', password: 'pass1234', site_ids: [s1, s2] }, adminToken)).ok);
+  const { token } = await (await post('/acme/api/login', { username: 'tech', password: 'pass1234' })).json();
+  const me = await get('/acme/api/me', token);
+  assert.equal(me.sites.length, 2); assert.equal(me.open_visit, null);
+  // the punch is fenced to his sites even without a main company location
+  assert.equal((await post('/acme/api/punch', { action: 'in', lat: 33.40, lng: 44.50 }, token)).status, 403);
+  assert.ok((await post('/acme/api/punch', { action: 'in', lat: 33.3203, lng: 44.3497 }, token)).ok);
+  // visits
+  assert.equal((await post('/acme/api/visit', { action: 'leave', lat: 33.3062, lng: 44.4209, report: 'x' }, token)).status, 400);
+  const far = await post('/acme/api/visit', { action: 'arrive', lat: 33.40, lng: 44.50 }, token);
+  assert.equal(far.status, 403); assert.match((await far.json()).error, /أقرب موقع/);
+  const a = await post('/acme/api/visit', { action: 'arrive', lat: 33.3063, lng: 44.4210, client_id: 'c1' }, token);
+  assert.ok(a.ok); assert.match((await a.json()).message, /الكرادة/);
+  assert.ok((await (await post('/acme/api/visit', { action: 'arrive', lat: 33.3063, lng: 44.4210, client_id: 'c1', queued: true }, token)).json()).duplicate);
+  assert.equal((await post('/acme/api/visit', { action: 'arrive', lat: 33.3203, lng: 44.3497 }, token)).status, 400); // must leave first
+  assert.equal((await post('/acme/api/visit', { action: 'leave', lat: 33.3063, lng: 44.4210, report: '' }, token)).status, 400); // report required
+  assert.ok((await post('/acme/api/visit', { action: 'leave', lat: 33.3063, lng: 44.4210, report: 'صيانة المولدة' }, token)).ok);
+  const me2 = await get('/acme/api/me', token);
+  assert.equal(me2.today_visits.length, 1); assert.equal(me2.today_visits[0].report, 'صيانة المولدة'); assert.equal(me2.open_visit, null);
+  const { date } = openTenant('acme').nowParts();
+  const rep = await get(`/acme/api/admin/visits?from=${date}&to=${date}`, adminToken);
+  assert.equal(rep.rows.length, 1); assert.equal(rep.rows[0].site_name, 'موقع الكرادة'); assert.equal(rep.rows[0].employee_name, 'فني');
+  const csv = await (await call('GET', `/acme/api/admin/visits.csv?from=${date}&to=${date}`, null, adminToken)).text();
+  assert.match(csv, /صيانة المولدة/);
+  // employees without sites keep the old behaviour
+  const emps = await get('/acme/api/admin/employees', adminToken);
+  assert.deepEqual(emps.find((e) => e.username === 'tech').site_ids.sort(), [s1, s2].sort());
+});

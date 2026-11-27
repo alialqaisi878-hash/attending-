@@ -26,6 +26,7 @@
     <div class="tabs">
       <button data-tab="today" class="active">اليوم</button>
       <button data-tab="employees">الموظفين</button>
+      <button data-tab="sites">المواقع</button>
       <button data-tab="leaves">الإجازات</button>
       <button data-tab="payroll">الرواتب</button>
       <button data-tab="report">التقارير</button>
@@ -51,6 +52,28 @@
     <section id="tab-employees" class="hidden">
       <div class="card hello"><button id="addEmpBtn">+ إضافة موظف</button><span class="muted" id="empLimit"></span></div>
       <div class="card"><div class="table-wrap"><table id="empTable"></table></div></div>
+    </section>
+
+    <!-- مواقع العمل وزيارات الفنيين -->
+    <section id="tab-sites" class="hidden">
+      <div class="card"><h3 style="margin-top:0">🟢 مين بالمواقع هسة</h3><div id="liveSites" class="muted">—</div></div>
+      <div class="card">
+        <div class="hello" style="margin:0"><h3 style="margin:0">مواقع العمل</h3><button id="addSiteBtn" class="adminOnly">+ إضافة موقع</button></div>
+        <p class="muted" style="margin:6px 0 10px">الموظف المربوط بمواقع يكدر يبصم حضور بأي موقع منها، ويسجّل وصوله وخروجه من كل موقع ويكتب تقرير عن شغله.</p>
+        <div class="table-wrap"><table id="siteTable"></table></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">تقرير الزيارات</h3>
+        <div class="row">
+          <div><label>من</label><input type="date" id="vFrom"></div>
+          <div><label>إلى</label><input type="date" id="vTo"></div>
+          <div><label>الموظف</label><select id="vEmp" class="empSelect" data-all="1"></select></div>
+          <div><label>الموقع</label><select id="vSite"></select></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button id="vRun">عرض</button><button class="secondary" id="vCsv">تنزيل Excel (CSV)</button></div>
+        <div class="muted" id="vSummary" style="margin-top:10px"></div>
+        <div class="table-wrap"><table id="visitTable"></table></div>
+      </div>
     </section>
 
     <!-- الإجازات -->
@@ -203,6 +226,24 @@
   </div>
 </main>
 
+<!-- نافذة الموقع -->
+<dialog id="siteDlg">
+  <h3 style="margin-top:0" id="siteDlgTitle">موقع</h3>
+  <label>اسم الموقع</label><input id="stName" placeholder="مثلاً: موقع الكرادة">
+  <div class="row">
+    <div><label>خط العرض (lat)</label><input id="stLat" dir="ltr" inputmode="decimal"></div>
+    <div><label>خط الطول (lng)</label><input id="stLng" dir="ltr" inputmode="decimal"></div>
+    <div><label>نصف القطر (متر)</label><input id="stRadius" type="number" min="20" max="5000" value="150"></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="secondary" id="stHere">📍 أنا هسة بالموقع، خذ مكاني</button></div>
+  <p class="muted" style="margin:6px 0">أو افتح الموقع بخرائط Google، اضغط مطوّلاً على المكان، وانسخ الرقمين هنا. <span id="stMap"></span></p>
+  <label>الموظفين اللي يشتغلون بهذا الموقع</label>
+  <div id="stEmps" style="display:flex;flex-wrap:wrap;gap:6px 14px;max-height:180px;overflow:auto"></div>
+  <label style="margin-top:10px"><input type="checkbox" id="stActive" style="width:auto" checked> الموقع فعّال</label>
+  <div class="row" style="margin-top:16px"><button id="stSave">حفظ</button><button class="secondary" id="stCancel">إلغاء</button></div>
+  <div class="msg" id="stMsg"></div>
+</dialog>
+
 <!-- نافذة الموظف -->
 <dialog id="empDlg">
   <h3 style="margin-top:0" id="dlgTitle">موظف</h3>
@@ -248,7 +289,7 @@ $('loginBtn').onclick = async () => {
 };
 $('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
 
-const loaders = { today: loadToday, employees: loadEmployees, leaves: loadLeaves, payroll: loadPayroll, settings: loadSettings, report: () => {} };
+const loaders = { sites: loadSites, today: loadToday, employees: loadEmployees, leaves: loadLeaves, payroll: loadPayroll, settings: loadSettings, report: () => {} };
 document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('hidden', s.id !== 'tab-' + b.dataset.tab));
@@ -431,6 +472,72 @@ $('rCsv').onclick = async () => {
   if (!r.ok) return alert('حدد فترة صحيحة');
   const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
   a.download = `attendance_${$('rFrom').value}_${$('rTo').value}.csv`; a.click();
+};
+
+// ----- مواقع العمل والزيارات -----
+let sites = [], editSite = null;
+const since = (date, t) => { const m = Math.round((Date.now() - new Date(`${date}T${t}`).getTime()) / 60000); return m >= 0 && m < 2000 ? hrs(m) : ''; };
+async function loadSites() {
+  if (!employees.length) await loadEmployees();
+  sites = await api('api/admin/sites');
+  const adm = role === 'admin';
+  $('addSiteBtn').classList.toggle('hidden', !adm);
+  $('siteTable').innerHTML = sites.length ? '<tr><th>الموقع</th><th>المكان</th><th>نصف القطر</th><th>الموظفين</th><th>الحالة</th><th></th></tr>' + sites.map((x) => `<tr>
+    <td><b>${esc(x.name)}</b></td><td>${mapLink(x.lat, x.lng)} <span class="muted" dir="ltr">${x.lat.toFixed(4)}, ${x.lng.toFixed(4)}</span></td><td>${x.radius} م</td>
+    <td>${x.employees}</td><td>${x.active ? 'فعّال' : 'موقوف'}</td><td>${adm ? `<button class="secondary small-btn" onclick="openSite(${x.id})">تعديل</button>` : ''}</td></tr>`).join('')
+    : '<tr><td class="muted">ما كو مواقع بعد. ضيف أول موقع، واختار الفنيين اللي يشتغلون بيه.</td></tr>';
+  $('vSite').innerHTML = '<option value="">الكل</option>' + sites.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  if (!$('vFrom').value) { const t = new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ }); $('vTo').value = t; $('vFrom').value = t.slice(0, 8) + '01'; }
+  await runVisits();
+}
+function visitQuery() { return `from=${$('vFrom').value}&to=${$('vTo').value}&employee_id=${$('vEmp').value}&site_id=${$('vSite').value}`; }
+async function runVisits() {
+  try {
+    const d = await api('api/admin/visits?' + visitQuery());
+    $('liveSites').innerHTML = d.now.length ? d.now.map((v) => `<div style="padding:6px 0"><b>${esc(v.employee_name)}</b> بموقع <b>${esc(v.site_name)}</b> من الساعة ${t5(v.arrived_at)}${v.work_date === new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ }) ? ` <span class="muted">(${since(v.work_date, v.arrived_at)})</span>` : ` <span class="muted">${v.work_date}</span>`}</div>`).join('')
+      : 'ماكو أحد داخل موقع هسة.';
+    $('vSummary').textContent = `${d.rows.length} زيارة · مجموع الوقت بالمواقع: ${hrs(d.total_minutes)}`;
+    const off = (b) => b ? ' <span class="badge b-offline">بدون نت</span>' : '';
+    $('visitTable').innerHTML = d.rows.length ? '<tr><th>التاريخ</th><th>الموظف</th><th>الموقع</th><th>وصل</th><th>طلع</th><th>المدة</th><th>التقرير</th></tr>' + d.rows.map((v) => `<tr>
+      <td>${v.work_date}</td><td>${esc(v.employee_name)}</td><td>${esc(v.site_name)}</td>
+      <td>${t5(v.arrived_at)}${mapLink(v.arr_lat, v.arr_lng)}${off(v.arr_offline)}</td>
+      <td>${v.left_at ? t5(v.left_at) + mapLink(v.left_lat, v.left_lng) + off(v.left_offline) + (v.left_distance > 300 ? ` <span class="badge b-غائب" title="سجّل الخروج وهو بعيد عن الموقع">بعيد ${Math.round(v.left_distance)} م</span>` : '') : '<span class="badge b-حاضر">بعده بالموقع</span>'}</td>
+      <td>${v.minutes == null ? '—' : hrs(v.minutes)}</td><td style="min-width:220px;white-space:pre-wrap">${esc(v.report || '')}</td></tr>`).join('')
+      : '<tr><td class="muted">ما كو زيارات بهذي الفترة.</td></tr>';
+  } catch (e) { $('vSummary').textContent = e.message; }
+}
+$('vRun').onclick = runVisits;
+$('vCsv').onclick = async () => {
+  const r = await fetch(BASE + 'api/admin/visits.csv?' + visitQuery(), { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  if (!r.ok) return alert('حدد فترة صحيحة');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `visits_${$('vFrom').value}_${$('vTo').value}.csv`; a.click();
+};
+const stMap = () => { const la = $('stLat').value, ln = $('stLng').value; $('stMap').innerHTML = la && ln ? `<a class="loc" target="_blank" href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(ln)}">شوف المكان على الخريطة 📍</a>` : ''; };
+window.openSite = async (id) => {
+  const x = sites.find((s) => s.id === id) || null; editSite = x ? x.id : null;
+  $('siteDlgTitle').textContent = x ? 'تعديل موقع' : 'إضافة موقع';
+  $('stName').value = x?.name || ''; $('stLat').value = x?.lat ?? ''; $('stLng').value = x?.lng ?? ''; $('stRadius').value = x?.radius ?? 150; $('stActive').checked = x ? !!x.active : true;
+  const chosen = x ? await api(`api/admin/sites/${x.id}/employees`) : [];
+  $('stEmps').innerHTML = employees.filter((e) => e.active).map((e) => `<label style="flex:0 0 auto;margin:0;color:var(--text)"><input type="checkbox" class="stEmp" value="${e.id}" style="width:auto" ${chosen.includes(e.id) ? 'checked' : ''}> ${esc(e.name)}</label>`).join('') || '<span class="muted">ضيف موظفين أول</span>';
+  stMap(); $('stMsg').className = 'msg'; $('siteDlg').showModal();
+};
+$('addSiteBtn').onclick = () => openSite(null);
+$('stCancel').onclick = () => $('siteDlg').close();
+$('stLat').oninput = $('stLng').oninput = stMap;
+$('stHere').onclick = () => {
+  if (!navigator.geolocation) return msg('stMsg', 'الجهاز ما يدعم تحديد الموقع', false);
+  $('stHere').disabled = true;
+  navigator.geolocation.getCurrentPosition((p) => { $('stLat').value = p.coords.latitude.toFixed(6); $('stLng').value = p.coords.longitude.toFixed(6); stMap(); $('stHere').disabled = false; msg('stMsg', `تم، الدقة تقريباً ${Math.round(p.coords.accuracy)} متر`, true); },
+    () => { $('stHere').disabled = false; msg('stMsg', 'ما كدرنا ناخذ مكانك. اسمح بالوصول للموقع.', false); }, { enableHighAccuracy: true, timeout: 15000 });
+};
+$('stSave').onclick = async () => {
+  const body = { name: $('stName').value, lat: Number($('stLat').value), lng: Number($('stLng').value), radius: Number($('stRadius').value), active: $('stActive').checked,
+    employee_ids: [...document.querySelectorAll('.stEmp:checked')].map((c) => Number(c.value)) };
+  try {
+    if (editSite) await api('api/admin/sites/' + editSite, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('api/admin/sites', { method: 'POST', body: JSON.stringify(body) });
+    $('siteDlg').close(); loadSites(); loadEmployees();
+  } catch (e) { msg('stMsg', e.message, false); }
 };
 
 // ----- الإعدادات -----
