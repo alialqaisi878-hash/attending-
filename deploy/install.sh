@@ -8,8 +8,10 @@ set -euo pipefail
 DOMAIN="${1:-}"
 BASE=/root/hudoor-saas
 NAME=hudoor-saas
-REPO="${REPO:-https://github.com/alialqaisi878-hash/hudoor-saas.git}"
-BRANCH="${BRANCH:-main}"
+# مصدر الكود: ينحفظ بملف .env أول مرة، وبعدين التحديث ياخذه من هناك
+envget() { [ -f "$BASE/.env" ] && grep "^$1=" "$BASE/.env" | cut -d= -f2- || true; }
+REPO="${REPO:-$(envget REPO)}"; REPO="${REPO:-https://github.com/alialqaisi878-hash/hudoor-saas.git}"
+BRANCH="${BRANCH:-$(envget BRANCH)}"; BRANCH="${BRANCH:-main}"
 
 if [ -z "$DOMAIN" ] && [ -f "$BASE/.env" ]; then DOMAIN=$(grep '^DOMAIN=' "$BASE/.env" | cut -d= -f2-); fi
 if [ -z "$DOMAIN" ]; then echo "اكتب الدومين بعد الأمر، مثال: bash install.sh hudoor.example.com"; exit 1; fi
@@ -17,6 +19,7 @@ command -v docker >/dev/null || { echo "Docker غير موجود على السي
 mkdir -p "$BASE/data"
 
 # 1) الكود
+if [ -d "$BASE/src/.git" ] && [ "$(git -C "$BASE/src" remote get-url origin)" != "$REPO" ]; then rm -rf "$BASE/src"; fi
 if [ -d "$BASE/src/.git" ]; then git -C "$BASE/src" fetch --depth 1 origin "$BRANCH" && git -C "$BASE/src" checkout -q -B "$BRANCH" FETCH_HEAD
 else git clone --depth 1 -b "$BRANCH" "$REPO" "$BASE/src"; fi
 SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
@@ -43,6 +46,9 @@ if [ ! -f "$BASE/.env" ]; then
 else
   sed -i "s/^DOMAIN=.*/DOMAIN=$DOMAIN/" "$BASE/.env"
 fi
+for kv in "REPO=$REPO" "BRANCH=$BRANCH"; do
+  k=${kv%%=*}; grep -v "^$k=" "$BASE/.env" > "$BASE/.env.tmp" || true; echo "$kv" >> "$BASE/.env.tmp"; mv "$BASE/.env.tmp" "$BASE/.env"; chmod 600 "$BASE/.env"
+done
 
 cat > "$BASE/docker-compose.yml" <<YML
 services:
