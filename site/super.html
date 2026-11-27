@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة صاحب البرنامج</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.svg">
+<style>
+  .b-active { background: #e6f6ee; color: var(--green); } .b-expired { background: #fdeaea; color: var(--red); } .b-suspended { background: #eef0f4; color: var(--muted); }
+  .soon { color: var(--amber); font-weight: 700; } .late { color: var(--red); font-weight: 700; }
+  textarea { width: 100%; font-family: inherit; font-size: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; min-height: 150px; }
+  td .small-btn { margin: 2px 0; }
+</style>
+</head>
+<body>
+<header><div class="brand"><img src="/icon.svg" alt=""><h1>لوحة صاحب البرنامج</h1></div><a href="#" id="logout" class="hidden">خروج</a></header>
+<main style="max-width:1200px">
+  <div class="card narrow" id="loginBox">
+    <label for="pass">كلمة المرور</label>
+    <input id="pass" type="password" dir="ltr" autocomplete="current-password">
+    <button style="width:100%;margin-top:14px" id="loginBtn">دخول</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="stats">
+      <div class="stat"><div class="n" id="tCompanies">0</div><div class="l">الشركات</div></div>
+      <div class="stat"><div class="n" id="tActive" style="color:var(--green)">0</div><div class="l">اشتراك فعّال</div></div>
+      <div class="stat"><div class="n" id="tSoon" style="color:var(--amber)">0</div><div class="l">ينتهي خلال أسبوع</div></div>
+      <div class="stat"><div class="n" id="tEmployees">0</div><div class="l">موظفين بالشركات الفعّالة</div></div>
+      <div class="stat"><div class="n" id="tIncome" style="font-size:22px">0</div><div class="l">الدخل الشهري (الفعّالة)</div></div>
+    </div>
+
+    <div class="card">
+      <div class="hello"><h3 style="margin:0">الشركات</h3><button id="addBtn">+ إضافة شركة</button></div>
+      <div class="table-wrap" style="margin-top:10px"><table id="cTable"></table></div>
+    </div>
+
+    <div class="card narrow">
+      <h3 style="margin-top:0">إعدادات البرنامج</h3>
+      <label>اسم البرنامج (يطلع بالصفحة الرئيسية)</label><input id="pName">
+      <label>رقم التواصل (واتساب) يطلع للزبائن ولما ينتهي الاشتراك</label><input id="pPhone" dir="ltr" placeholder="07xxxxxxxxx">
+      <button style="margin-top:12px" id="pSave">حفظ</button>
+      <h3>تغيير باسوردك</h3>
+      <label>الباسورد الحالي</label><input type="password" id="pOld" dir="ltr">
+      <label>الباسورد الجديد (10 أحرف أو أكثر)</label><input type="password" id="pNew" dir="ltr">
+      <button class="secondary" style="margin-top:12px" id="pPw">تغيير</button>
+      <div class="msg" id="pMsg"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">السجل</h3>
+      <div class="table-wrap" style="max-height:360px;overflow:auto"><table id="logTable"></table></div>
+    </div>
+  </div>
+</main>
+
+<dialog id="dlg">
+  <h3 style="margin-top:0" id="dTitle">شركة</h3>
+  <div class="row">
+    <div><label>اسم الشركة</label><input id="fName"></div>
+    <div><label>رمز الشركة بالرابط (إنگليزي)</label><input id="fSlug" dir="ltr" autocapitalize="off" placeholder="alnoor"></div>
+  </div>
+  <p class="muted" id="fLink" style="margin:4px 0 0" dir="ltr"></p>
+  <div class="row">
+    <div><label>ينتهي الاشتراك بتاريخ</label><input type="date" id="fExpires"></div>
+    <div><label>أقصى عدد موظفين (0 = مفتوح)</label><input type="number" min="0" id="fMax"></div>
+    <div><label>سعر الاشتراك الشهري</label><input type="number" min="0" id="fPrice"></div>
+  </div>
+  <div class="row">
+    <div><label>اسم المسؤول</label><input id="fContact"></div>
+    <div><label>رقم التلفون</label><input id="fPhone" dir="ltr"></div>
+  </div>
+  <label>ملاحظات</label><input id="fNotes">
+  <div id="newOnly"><label>باسورد مدير الشركة (اتركه فارغ حتى يتولد تلقائياً)</label><input id="fPass" dir="ltr" autocomplete="off"></div>
+  <div class="row" style="margin-top:16px"><button id="fSave">حفظ</button><button class="secondary" id="fCancel">إلغاء</button></div>
+  <div class="msg" id="fMsg"></div>
+</dialog>
+
+<dialog id="welcome">
+  <h3 style="margin-top:0">معلومات الدخول للشركة</h3>
+  <p class="muted" style="margin-top:0">انسخها ودزها للشركة. الباسورد ما يطلع مرة ثانية (تكدر تسوي واحد جديد بأي وقت).</p>
+  <textarea id="wText" readonly></textarea>
+  <div class="row" style="margin-top:12px"><button id="wCopy">نسخ</button><a id="wWa" target="_blank" rel="noopener"><button class="secondary" style="width:100%">إرسال واتساب</button></a><button class="secondary" onclick="welcome.close()">إغلاق</button></div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (n) => Number(n || 0).toLocaleString('en-US');
+const store = { get: (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }, del: (k) => { try { localStorage.removeItem(k); } catch (e) {} } };
+function msg(id, text, ok) { const m = $(id); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+async function api(url, opts = {}) {
+  const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('super_token') } });
+  if (r.status === 401 && !url.endsWith('/login')) { logout(); throw new Error('سجّل دخول من جديد'); }
+  const d = await r.json(); if (!r.ok) throw new Error(d.error || 'خطأ'); return d;
+}
+function logout() { store.del('super_token'); $('app').classList.add('hidden'); $('logout').classList.add('hidden'); $('loginBox').classList.remove('hidden'); }
+$('logout').onclick = async (e) => { e.preventDefault(); try { await api('/super/api/logout', { method: 'POST' }); } catch (x) {} logout(); };
+$('loginBtn').onclick = async () => {
+  try { const d = await api('/super/api/login', { method: 'POST', body: JSON.stringify({ password: $('pass').value }) }); store.set('super_token', d.token); $('pass').value = ''; start(); }
+  catch (e) { msg('loginMsg', e.message, false); }
+};
+$('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
+
+let rows = [], editSlug = null, settings = {};
+const STATUS = { active: 'فعّال', expired: 'منتهي', suspended: 'موقوف' };
+const linkOf = (slug) => `${location.origin}/${slug}/`;
+async function load() {
+  const d = await api('/super/api/companies'); rows = d.rows;
+  $('tCompanies').textContent = d.totals.companies; $('tActive').textContent = d.totals.active; $('tSoon').textContent = d.totals.expiring_soon;
+  $('tEmployees').textContent = d.totals.employees; $('tIncome').textContent = money(d.totals.monthly_income);
+  $('cTable').innerHTML = rows.length ? '<tr><th>الشركة</th><th>الرابط</th><th>الحالة</th><th>ينتهي</th><th>الموظفين</th><th>آخر بصمة</th><th>السعر</th><th>التواصل</th><th></th></tr>' + rows.map((c) => {
+    const dl = c.days_left;
+    const left = c.expires_at ? `${c.expires_at}<br><span class="${dl < 0 ? 'late' : dl <= 7 ? 'soon' : 'muted'}">${dl < 0 ? `منتهي من ${-dl} يوم` : dl === 0 ? 'ينتهي اليوم' : `باقي ${dl} يوم`}</span>` : 'بدون انتهاء';
+    return `<tr><td><b>${esc(c.name)}</b>${c.company_name && c.company_name !== c.name ? `<br><span class="muted">${esc(c.company_name)}</span>` : ''}${c.notes ? `<br><span class="muted">${esc(c.notes)}</span>` : ''}</td>
+      <td dir="ltr"><a href="/${c.slug}/" target="_blank">/${esc(c.slug)}/</a></td>
+      <td><span class="badge b-${c.status}">${STATUS[c.status]}</span></td><td>${left}</td>
+      <td>${c.employees ?? '—'}${c.max_employees ? ' / ' + c.max_employees : ''}</td><td>${c.last_punch || '—'}</td><td>${money(c.price)}</td>
+      <td>${esc(c.contact_name)}<br><span dir="ltr">${esc(c.phone)}</span></td>
+      <td><button class="small-btn" onclick="extend('${c.slug}', 1)">+ شهر</button> <button class="small-btn" onclick="extend('${c.slug}', 12)">+ سنة</button><br>
+        <button class="secondary small-btn" onclick="edit('${c.slug}')">تعديل</button>
+        <button class="secondary small-btn" onclick="toggle('${c.slug}', ${c.active ? 0 : 1})">${c.active ? 'إيقاف' : 'تفعيل'}</button><br>
+        <button class="secondary small-btn" onclick="support('${c.slug}')">دخول كمدير</button>
+        <button class="secondary small-btn" onclick="resetPw('${c.slug}')">باسورد جديد</button>
+        ${c.active ? '' : `<button class="secondary small-btn" style="color:var(--red)" onclick="del('${c.slug}')">حذف</button>`}</td></tr>`;
+  }).join('') : '<tr><td>ما كو شركات بعد. اضغط «إضافة شركة».</td></tr>';
+  const log = await api('/super/api/log');
+  $('logTable').innerHTML = log.length ? '<tr><th>الوقت</th><th>الشركة</th><th>العملية</th></tr>' + log.map((l) =>
+    `<tr><td dir="ltr">${new Date(l.at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</td><td dir="ltr">${esc(l.slug)}</td><td>${esc(l.what)}</td></tr>`).join('') : '<tr><td>فارغ</td></tr>';
+}
+function openDlg(c) {
+  editSlug = c ? c.slug : null;
+  $('dTitle').textContent = c ? 'تعديل شركة' : 'إضافة شركة';
+  $('fName').value = c?.name || ''; $('fSlug').value = c?.slug || ''; $('fSlug').disabled = !!c;
+  const trial = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+  $('fExpires').value = c ? (c.expires_at || '') : trial; $('fMax').value = c?.max_employees ?? 0; $('fPrice').value = c?.price ?? 0;
+  $('fContact').value = c?.contact_name || ''; $('fPhone').value = c?.phone || ''; $('fNotes').value = c?.notes || ''; $('fPass').value = '';
+  $('newOnly').classList.toggle('hidden', !!c); $('fMsg').className = 'msg'; showLink(); $('dlg').showModal();
+}
+function showLink() { const s = $('fSlug').value.trim().toLowerCase(); $('fLink').textContent = s ? 'الرابط: ' + linkOf(s) : (editSlug ? '' : 'مثال: alnoor أو noor-company'); }
+$('fSlug').oninput = showLink;
+$('addBtn').onclick = () => openDlg(null);
+$('fCancel').onclick = () => $('dlg').close();
+window.edit = (slug) => openDlg(rows.find((c) => c.slug === slug));
+function showWelcome(c, pass) {
+  const t = `أهلاً بيكم ب${settings.product_name || 'البرنامج'} 👋\nشركة: ${c.name}\n\nرابط الموظفين (يفتحوه من التلفون ويضيفوه للشاشة الرئيسية):\n${linkOf(c.slug)}\n\nلوحة المدير:\n${linkOf(c.slug)}admin.html\nاسم المستخدم: اتركه فارغ\nالباسورد: ${pass}\n\nأول خطوة: من الإعدادات حدد موقع الشركة وأضف الدوامات، وبعدين ضيف الموظفين.`;
+  $('wText').value = t;
+  const wa = (c.phone || '').replace(/[^0-9]/g, '').replace(/^0/, '964');
+  $('wWa').href = `https://wa.me/${wa}?text=${encodeURIComponent(t)}`;
+  $('welcome').showModal();
+}
+$('wCopy').onclick = async () => { try { await navigator.clipboard.writeText($('wText').value); $('wCopy').textContent = 'تم النسخ ✅'; } catch (e) { $('wText').select(); document.execCommand('copy'); } setTimeout(() => ($('wCopy').textContent = 'نسخ'), 1500); };
+$('fSave').onclick = async () => {
+  const body = { name: $('fName').value, expires_at: $('fExpires').value, max_employees: $('fMax').value || 0, price: $('fPrice').value || 0,
+    contact_name: $('fContact').value, phone: $('fPhone').value, notes: $('fNotes').value };
+  try {
+    if (editSlug) await api('/super/api/companies/' + editSlug, { method: 'PUT', body: JSON.stringify(body) });
+    else {
+      const d = await api('/super/api/companies', { method: 'POST', body: JSON.stringify({ ...body, slug: $('fSlug').value, admin_password: $('fPass').value }) });
+      $('dlg').close(); await load(); return showWelcome({ ...body, slug: d.slug }, d.admin_password);
+    }
+    $('dlg').close(); load();
+  } catch (e) { msg('fMsg', e.message, false); }
+};
+window.extend = async (slug, m) => {
+  const c = rows.find((x) => x.slug === slug);
+  if (!confirm(`تجديد اشتراك ${c.name} ${m === 12 ? 'سنة' : 'شهر'}؟`)) return;
+  try { const d = await api('/super/api/companies/' + slug, { method: 'PUT', body: JSON.stringify({ extend_months: m, active: 1 }) }); load(); alert('الاشتراك صار لحد ' + d.expires_at); } catch (e) { alert(e.message); }
+};
+window.toggle = async (slug, active) => {
+  const c = rows.find((x) => x.slug === slug);
+  if (!active && !confirm(`توقف ${c.name}؟ موظفينهم ما يكدرون يبصمون لحد ما تفعّلها. البيانات تبقى محفوظة.`)) return;
+  try { await api('/super/api/companies/' + slug, { method: 'PUT', body: JSON.stringify({ active }) }); load(); } catch (e) { alert(e.message); }
+};
+window.support = async (slug) => { try { const d = await api(`/super/api/companies/${slug}/support-login`, { method: 'POST' }); window.open(d.url, '_blank'); } catch (e) { alert(e.message); } };
+window.resetPw = async (slug) => {
+  const c = rows.find((x) => x.slug === slug);
+  if (!confirm(`تسوي باسورد جديد لمدير ${c.name}؟ الباسورد القديم يبطل.`)) return;
+  try { const d = await api('/super/api/companies/' + slug, { method: 'PUT', body: JSON.stringify({ reset_password: true }) }); showWelcome(c, d.admin_password); } catch (e) { alert(e.message); }
+};
+window.del = async (slug) => {
+  const v = prompt(`حذف الشركة نهائياً من القائمة؟ ملفها ينحفظ بمجلد deleted بالسيرفر.\nاكتب رمز الشركة (${slug}) حتى نتأكد:`);
+  if (v === null) return;
+  try { await api('/super/api/companies/' + slug, { method: 'DELETE', body: JSON.stringify({ confirm: v.trim() }) }); load(); } catch (e) { alert(e.message); }
+};
+$('pSave').onclick = async () => {
+  try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ product_name: $('pName').value, support_phone: $('pPhone').value }) }); msg('pMsg', 'تم الحفظ', true); settings = await api('/super/api/settings'); }
+  catch (e) { msg('pMsg', e.message, false); }
+};
+$('pPw').onclick = async () => {
+  try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ old_password: $('pOld').value, new_password: $('pNew').value }) }); msg('pMsg', 'تم تغيير الباسورد', true); $('pOld').value = $('pNew').value = ''; }
+  catch (e) { msg('pMsg', e.message, false); }
+};
+async function start() {
+  try { settings = await api('/super/api/settings'); } catch (e) { return; }
+  $('pName').value = settings.product_name; $('pPhone').value = settings.support_phone;
+  $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
+  load().catch((e) => alert(e.message));
+}
+if (store.get('super_token')) start();
+</script>
+</body>
+</html>

@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة المدير - الحضور والانصراف</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="logo">
+<meta name="theme-color" content="#1f6feb">
+</head>
+<body>
+<header><div class="brand"><img class="company-logo hidden" alt=""><h1><span class="company-name"></span> · <span id="panelTitle">لوحة المدير</span></h1></div><span><a href="index.html">صفحة الموظف</a> &nbsp; <a href="#" id="logout" class="hidden">خروج</a></span></header>
+<div id="subBar" class="subbar hidden"></div>
+<div id="warnBar" class="warnbar hidden"></div>
+<main>
+  <div class="card narrow" id="loginBox">
+    <label for="user">اسم المستخدم <span class="muted">(المدير يتركه فارغ)</span></label>
+    <input id="user" dir="ltr" autocapitalize="off" autocomplete="username">
+    <label for="pass">كلمة المرور</label>
+    <input id="pass" type="password" dir="ltr" autocomplete="current-password">
+    <button style="width:100%;margin-top:14px" id="loginBtn">دخول</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button data-tab="today" class="active">اليوم</button>
+      <button data-tab="employees">الموظفين</button>
+      <button data-tab="leaves">الإجازات</button>
+      <button data-tab="payroll">الرواتب</button>
+      <button data-tab="report">التقارير</button>
+      <button data-tab="settings">الإعدادات</button>
+    </div>
+
+    <!-- اليوم -->
+    <section id="tab-today">
+      <div class="stats">
+        <div class="stat"><div class="n" id="sTotal">0</div><div class="l">عدد الموظفين</div></div>
+        <div class="stat"><div class="n" id="sPresent" style="color:var(--green)">0</div><div class="l">حاضر</div></div>
+        <div class="stat"><div class="n" id="sLate" style="color:var(--amber)">0</div><div class="l">متأخر</div></div>
+        <div class="stat"><div class="n" id="sNot" style="color:var(--red)">0</div><div class="l">ما بصم / غائب</div></div>
+        <div class="stat"><div class="n" id="sLeave" style="color:var(--primary)">0</div><div class="l">إجازة</div></div>
+      </div>
+      <div class="card"><div class="muted" id="todayDate"></div><div class="table-wrap"><table id="todayTable"></table></div></div>
+    </section>
+
+    <!-- الموظفين -->
+    <section id="tab-employees" class="hidden">
+      <div class="card hello"><button id="addEmpBtn">+ إضافة موظف</button><span class="muted" id="empLimit"></span></div>
+      <div class="card"><div class="table-wrap"><table id="empTable"></table></div></div>
+    </section>
+
+    <!-- الإجازات -->
+    <section id="tab-leaves" class="hidden">
+      <div class="card">
+        <h3 style="margin-top:0">تسجيل إجازة</h3>
+        <div class="row">
+          <div><label>الموظف</label><select id="lEmp" class="empSelect" data-allstaff="1"></select></div>
+          <div><label>من تاريخ</label><input type="date" id="lFrom"></div>
+          <div><label>إلى تاريخ</label><input type="date" id="lTo"></div>
+        </div>
+        <div class="row">
+          <select id="lPaid" class="hidden"><option value="1">مدفوعة</option></select>
+          <div><label>ملاحظة</label><input id="lNote" placeholder="مثلاً: مرضية، ظرف عائلي"></div>
+        </div>
+        <button style="margin-top:12px" id="lAdd">حفظ الإجازة</button>
+        <div class="msg" id="lMsg"></div>
+        <p class="muted">الإجازة هنا مدفوعة (ما تنخصم من الراتب) وتنخصم من رصيد إجازات الموظف. «كل الموظفين» تنحسب عطلة رسمية وما تنخصم من الرصيد. أي يوم دوام ما بيه بصمة وما مسجّلة له إجازة يُحسب غياب وينخصم من الراتب.</p>
+      </div>
+      <div class="card">
+        <div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="lMonth"></div><div></div></div>
+        <h3>أيام الغياب</h3>
+        <p class="muted" style="margin-top:0">اضغط «إجازة مدفوعة» جنب اليوم حتى ما ينخصم.</p>
+        <div class="table-wrap"><table id="absentTable"></table></div>
+        <h3>الإجازات المسجّلة</h3>
+        <div class="table-wrap"><table id="leaveTable"></table></div>
+      </div>
+    </section>
+
+    <!-- الرواتب -->
+    <section id="tab-payroll" class="hidden">
+      <div class="card"><div class="row" style="align-items:end"><div><label>الشهر</label><input type="month" id="pMonth"></div>
+        <div><button class="secondary" id="pCsv" style="width:100%">تنزيل Excel (CSV)</button></div></div></div>
+      <div class="card"><h3 style="margin-top:0">ملخص رواتب الموظفين</h3><div class="table-wrap"><table id="payTable"></table></div>
+        <p class="muted" id="payRule"></p></div>
+      <div class="card narrow"><h3 style="margin-top:0">ملخص القيد المحاسبي</h3><div id="ledger"></div></div>
+    </section>
+
+    <!-- التقارير -->
+    <section id="tab-report" class="hidden">
+      <div class="card">
+        <div class="row">
+          <div><label>من</label><input type="date" id="rFrom"></div>
+          <div><label>إلى</label><input type="date" id="rTo"></div>
+          <div><label>الموظف</label><select id="rEmp" class="empSelect" data-all="1"></select></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="rRun">عرض التقرير</button>
+          <button class="secondary" id="rCsv">تنزيل Excel (CSV)</button>
+        </div>
+      </div>
+      <div class="card"><div class="muted" id="rSummary"></div><div class="table-wrap"><table id="reportTable"></table></div></div>
+    </section>
+
+    <!-- الإعدادات -->
+    <section id="tab-settings" class="hidden">
+      <div class="card narrow">
+        <h3 style="margin-top:0">مكان البصمة</h3>
+        <p class="muted">الموظف ما يكدر يبصم إلا إذا كان داخل هذا المكان. وكَف بمكان العمل واضغط الزر حتى ياخذ موقعك الحالي.</p>
+        <button class="secondary" style="width:100%" id="useMyLoc">📍 استخدم موقعي الحالي كمكان العمل</button>
+        <div class="row">
+          <div><label>خط العرض</label><input id="sLat" dir="ltr"></div>
+          <div><label>خط الطول</label><input id="sLng" dir="ltr"></div>
+        </div>
+        <label>المسافة المسموحة حول المكان (متر)</label><input type="number" min="10" id="sRadius">
+        <p class="muted" id="locView"></p>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sDeviceLock" style="width:auto"> كل موظف يبصم من تلفونه بس (قفل الجهاز)</label>
+        <p class="muted" style="margin-top:4px">الحساب ينربط بأول تلفون يدخل منه، وتلفون واحد ما يبصم لحسابين. إذا موظف غيّر تلفونه، فك الربط من صفحة الموظفين.</p>
+        <h3>هوية الشركة</h3>
+        <label>اسم الشركة (يطلع بالبرنامج وبفورمة الراتب)</label><input id="sCompany">
+        <label>شعار الشركة (PNG أو JPG، يطلع بالبرنامج وأيقونة التلفون وفورمة الراتب)</label>
+        <div class="row" style="align-items:center"><img id="logoPreview" class="hidden" style="max-height:56px;max-width:120px;flex:0 0 auto;min-width:0" alt="">
+          <input type="file" id="sLogo" accept="image/png,image/jpeg,image/webp,image/svg+xml">
+          <button class="secondary small-btn hidden" id="sLogoDel" style="flex:0 0 auto;min-width:0">حذف الشعار</button></div>
+        <div class="row">
+          <div><label>لون البرنامج</label><input type="color" id="sColor" style="height:44px;padding:4px"></div>
+          <div><label>العملة</label><input id="sCurrency" placeholder="د.ع"></div>
+        </div>
+        <label>المنطقة الزمنية</label>
+        <select id="sTz">
+          <option value="Asia/Baghdad">العراق (بغداد)</option><option value="Asia/Riyadh">السعودية (الرياض)</option>
+          <option value="Asia/Kuwait">الكويت</option><option value="Asia/Dubai">الإمارات (دبي)</option><option value="Asia/Qatar">قطر</option>
+          <option value="Asia/Bahrain">البحرين</option><option value="Asia/Muscat">عُمان</option><option value="Asia/Amman">الأردن</option>
+          <option value="Asia/Damascus">سوريا</option><option value="Asia/Beirut">لبنان</option><option value="Africa/Cairo">مصر</option>
+          <option value="Asia/Tehran">إيران</option><option value="Europe/Istanbul">تركيا</option>
+        </select>
+        <label>ملاحظة تطلع للموظفين بصفحة الدخول (اختياري)</label><input id="sSupport" placeholder="مثلاً: نسيت الباسورد؟ راجع الموارد البشرية 07xx">
+        <h3>الرواتب</h3>
+        <label>عدد أيام القسمة (اليومية = الراتب ÷ هذا الرقم)</label><input type="number" min="1" max="31" id="sMonthDays">
+        <label>سماحية التأخير الشهرية (دقيقة، توتل الشهر كله)</label><input type="number" min="0" id="sAllowance">
+        <label>سعر ساعة التأخير (بعملة الشركة)</label><input type="number" min="0" id="sLateRate">
+        <label>سعر ساعة الإضافي (بعملة الشركة)</label><input type="number" min="0" id="sOTRate">
+        <label>أيام الإجازة المدفوعة لكل موظف بالشهر (تتجمع إذا ما ياخذها)</label><input type="number" min="0" max="10" step="0.5" id="sLeaveMonthly">
+        <label>يبدي احتساب رصيد الإجازات من شهر</label><input type="month" id="sLeaveStart">
+        <label>أيام العطلة الأسبوعية</label>
+        <div class="row" id="weekendBox"></div>
+        <h3>ربط خارجي Webhook (رسالة لكل بصمة)</h3>
+        <p class="muted" style="margin-top:0">كل ما موظف يبصم حضور أو انصراف، البرنامج يدز لهذا الرابط اسمه ووقته. ينفع ويا n8n أو Zapier أو أي نظام. إذا الرابط عطلان البصمة تنحفظ عادي.</p>
+        <label>رابط Webhook</label><input id="sWebhook" dir="ltr" placeholder="https://.../webhook/...">
+        <button class="secondary" style="margin-top:8px" id="sWebhookTest">تجربة الرابط</button>
+        <div class="msg" id="whMsg"></div>
+        <h3>التنبيهات</h3>
+        <label>تذكير قبل بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRB">
+        <label>تذكير ثاني إذا ما بصم بعد بداية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRL">
+        <label>تذكير الانصراف بعد نهاية الدوام بـ (دقائق)</label><input type="number" min="0" id="sRO">
+        <h3>حساب المحاسب</h3>
+        <p class="muted" style="margin-top:0">المحاسب يدخل من نفس الصفحة باسم المستخدم والباسورد. يشوف الرواتب والتقارير ويطبع الفورمات وينزّل الإكسل، ويضيف ويعدّل الموظفين (وكل تعديل يطلع بسجل التغييرات). ما يگدر يغيّر الإجازات أو الغياب أو الإعدادات، ولا يفك ربط الجهاز.</p>
+        <div class="row">
+          <div><label>اسم المستخدم (اتركه فارغ حتى توقف الحساب)</label><input id="sAccUser" dir="ltr" autocapitalize="off" autocomplete="off"></div>
+          <div><label>باسورد المحاسب <span class="muted" id="sAccHint"></span></label><input id="sAccPass" type="password" dir="ltr" autocomplete="new-password"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sAccAdjust" style="width:auto"> المحاسب يگدر يكتب المكافآت والسلف</label>
+        <button style="width:100%;margin-top:14px" id="sSave">حفظ الإعدادات</button>
+        <div class="msg" id="sMsg"></div>
+      </div>
+      <div class="card narrow" id="adminPwCard">
+        <h3 style="margin-top:0">تغيير باسورد المدير</h3>
+        <label>الباسورد الحالي</label><input type="password" id="apOld" dir="ltr" autocomplete="current-password">
+        <label>الباسورد الجديد (8 أحرف أو أكثر)</label><input type="password" id="apNew" dir="ltr" autocomplete="new-password">
+        <button class="secondary" style="margin-top:12px" id="apBtn">تغيير</button>
+        <div class="msg" id="apMsg"></div>
+      </div>
+      <div class="card" style="border:1px solid var(--red)">
+        <h3 style="margin-top:0;color:var(--red)">تصفير بيانات التجربة</h3>
+        <p class="muted" style="margin-top:0">استعمله مرة وحدة قبل ما تبدي تعتمد البرنامج. يمسح كل البصمات والإجازات والسلف والمكافآت وسجل التغييرات، ورصيد الإجازات يبدي من جديد من هذا الشهر. الموظفين ورواتبهم ودواماتهم والإعدادات تبقى مثل ما هي. قبل المسح تنحفظ نسخة احتياطية بالسيرفر.</p>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rsUnbind" style="width:auto"> فك ربط كل التلفونات هم (إذا جرّبتوا من تلفونات غير تلفونات الموظفين)</label>
+        <label>اكتب كلمة <b>تصفير</b> حتى نتأكد</label><input id="rsConfirm" autocomplete="off">
+        <button style="width:100%;margin-top:12px;background:var(--red)" id="rsBtn">تصفير البيانات</button>
+        <div class="msg" id="rsMsg"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">سجل التغييرات</h3>
+        <p class="muted" style="margin-top:0">كل تعديل على الموظفين والمكافآت والسلف: منو سوّاه (المدير أو المحاسب)، شنو كان وصار شنو.</p>
+        <div class="table-wrap" style="max-height:420px;overflow:auto"><table id="changesTable"></table></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">الدوامات</h3>
+        <p class="muted">سوّي دوام لكل وقت عندك، وبعدين اختار لكل موظف دوامه من صفحة الموظفين.</p>
+        <div class="table-wrap"><table id="shiftTable"></table></div>
+        <div class="row" style="align-items:end;margin-top:10px">
+          <div><label>اسم الدوام</label><input id="shName" placeholder="مثلاً 7:00 - 3:30"></div>
+          <div><label>البداية</label><input type="time" id="shStart" value="08:00"></div>
+          <div><label>النهاية</label><input type="time" id="shEnd" value="15:00"></div>
+          <div><label>يبدي الإضافي من</label><input type="time" id="shOT" value="16:00"></div>
+        </div>
+        <div class="row" style="margin-top:10px"><button id="shSave">إضافة دوام</button><button class="secondary hidden" id="shCancel">إلغاء التعديل</button></div>
+        <div class="msg" id="shMsg"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- نافذة الموظف -->
+<dialog id="empDlg">
+  <h3 style="margin-top:0" id="dlgTitle">موظف</h3>
+  <div class="row">
+    <div><label>الاسم الكامل</label><input id="fName"></div>
+    <div><label>اسم المستخدم (للدخول)</label><input id="fUser" dir="ltr" autocapitalize="off"></div>
+  </div>
+  <div class="row">
+    <div><label>القسم</label><input id="fDept"></div>
+    <div><label>العنوان الوظيفي</label><input id="fJob"></div>
+  </div>
+  <div class="row">
+    <div><label>كلمة المرور <span class="muted" id="pwHint"></span></label><input id="fPass" dir="ltr"></div>
+    <div><label>الراتب الشهري (بعملة الشركة)</label><input type="number" min="0" id="fSalary"></div>
+  </div>
+  <div class="row">
+    <div><label>رصيد إجازات سابق (يوم) <span class="muted">إذا عنده أيام من قبل</span></label><input type="number" step="0.5" id="fLeaveOpen"></div>
+    <div><label>الرصيد الحالي</label><input id="fLeaveNow" disabled></div>
+  </div>
+  <label>الدوام</label><select id="fShift"></select>
+  <div class="row" id="customShift">
+    <div><label>بداية الدوام</label><input type="time" id="fStart"></div>
+    <div><label>نهاية الدوام</label><input type="time" id="fEnd"></div>
+    <div><label>يبدي الإضافي من</label><input type="time" id="fOT"></div>
+  </div>
+  <div class="row" style="margin-top:16px">
+    <button id="fSave">حفظ</button><button class="secondary" id="fCancel">إلغاء</button>
+  </div>
+  <div class="msg" id="fMsg"></div>
+</dialog>
+
+<script src="common.js"></script>
+<script>
+const api = makeApi('admin_token', logout);
+let employees = [], editId = null, settings = {}, shifts = [], editShift = null;
+const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+function logout() { store.del('admin_token'); $('app').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logout').classList.add('hidden'); }
+$('logout').onclick = async (e) => { e.preventDefault(); try { await api('api/logout', { method: 'POST' }); } catch (x) {} logout(); };
+$('loginBtn').onclick = async () => {
+  try { const d = await api('api/admin/login', { method: 'POST', body: JSON.stringify({ username: $('user').value, password: $('pass').value }) }); $('pass').value = '';
+    store.set('admin_token', d.token); start(); } catch (e) { msg('loginMsg', e.message, false); }
+};
+$('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
+
+const loaders = { today: loadToday, employees: loadEmployees, leaves: loadLeaves, payroll: loadPayroll, settings: loadSettings, report: () => {} };
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+  document.querySelectorAll('section').forEach((s) => s.classList.toggle('hidden', s.id !== 'tab-' + b.dataset.tab));
+  loaders[b.dataset.tab]().catch((e) => alert(e.message));
+});
+
+const offTag = (off, at) => off ? ` <span class="badge b-offline" title="وصلت للسيرفر: ${esc(at)}">بصمة بدون نت · وصلت ${esc(at)}</span>` : '';
+function attendanceRows(rows, withDate) {
+  return `<tr>${withDate ? '<th>التاريخ</th>' : ''}<th>الاسم</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>` +
+    rows.map((r) => `<tr>${withDate ? `<td>${r.work_date}</td>` : ''}<td>${esc(r.name)}</td><td>${esc(r.department)}</td>
+      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}${offTag(r.in_offline, r.in_synced_at)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}${offTag(r.out_offline, r.out_synced_at)}</td>
+      <td>${badge(r.status)}</td><td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td>
+      <td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
+}
+
+async function loadToday() {
+  const d = await api('api/admin/today');
+  $('todayDate').textContent = 'تاريخ اليوم: ' + d.date;
+  const c = (...s) => d.rows.filter((r) => s.includes(r.status)).length;
+  $('sTotal').textContent = d.rows.length; $('sPresent').textContent = c('حاضر', 'دوام بالعطلة'); $('sLate').textContent = c('متأخر');
+  $('sNot').textContent = c('غائب', 'لم يسجّل بعد'); $('sLeave').textContent = c('إجازة مدفوعة', 'إجازة بدون راتب');
+  $('todayTable').innerHTML = d.rows.length ? attendanceRows(d.rows, false) : '<tr><td>ما كو موظفين بعد. ضيفهم من تبويب الموظفين.</td></tr>';
+}
+
+// ----- الموظفين -----
+async function loadEmployees() {
+  [employees, shifts] = await Promise.all([api('api/admin/employees'), api('api/admin/shifts')]);
+  document.querySelectorAll('.empSelect').forEach((sel) => {
+    const v = sel.value;
+    sel.innerHTML = (sel.dataset.all ? '<option value="">الكل</option>' : '') +
+      employees.filter((e) => e.active).map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('') +
+      (sel.dataset.allstaff ? '<option value="all">كل الموظفين (عطلة للكل)</option>' : '');
+    if (v) sel.value = v;
+  });
+  $('empTable').innerHTML = '<tr><th>الاسم</th><th>المستخدم</th><th>القسم</th><th>الراتب</th><th>الدوام</th><th>الإضافي من</th><th>رصيد الإجازات</th><th>الجهاز</th><th>الحالة</th><th></th></tr>' +
+    employees.map((e) => `<tr><td>${esc(e.name)}</td><td dir="ltr">${esc(e.username)}</td><td>${esc(e.department)}</td><td>${money(e.salary)}</td>
+      <td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${e.overtime_after}</td>
+      <td style="${e.leave_balance <= 0 ? 'color:var(--red)' : ''}">${e.leave_balance} يوم</td>
+      <td>${e.device_bound ? '📱 مربوط' + (role === 'admin' ? ' <button class="secondary small-btn" onclick="resetDevice(' + e.id + ')">فك الربط</button>' : '') : '<span class="muted">ينربط بأول دخول</span>'}</td>
+      <td>${e.active ? 'فعّال' : 'موقوف'}</td>
+      <td><button class="secondary small-btn" onclick="editEmp(${e.id})">تعديل</button>
+      <button class="secondary small-btn" onclick="toggleEmp(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('');
+}
+function openDlg(e) {
+  editId = e ? e.id : null;
+  $('dlgTitle').textContent = e ? 'تعديل موظف' : 'إضافة موظف';
+  $('fName').value = e?.name || ''; $('fUser').value = e?.username || ''; $('fUser').disabled = !!e;
+  $('fDept').value = e?.department || ''; $('fJob').value = e?.job_title || ''; $('fPass').value = '';
+  $('pwHint').textContent = e ? '(اتركها فارغة إذا ما تريد تغيّرها)' : '';
+  $('fSalary').value = e?.salary ?? ''; $('fLeaveOpen').value = e?.leave_opening ?? 0; $('fLeaveNow').value = e ? e.leave_balance + ' يوم' : '—'; $('fStart').value = e?.shift_start || '08:00'; $('fEnd').value = e?.shift_end || '15:00';
+  $('fOT').value = e?.overtime_after || '16:00';
+  $('fShift').innerHTML = shifts.map((x) => `<option value="${x.id}">${esc(x.name)} (${x.start} - ${x.end})</option>`).join('') + '<option value="">وقت مخصص لهذا الموظف</option>';
+  $('fShift').value = e ? (e.shift_id || '') : (shifts[0]?.id || '');
+  $('customShift').classList.toggle('hidden', !!$('fShift').value);
+  $('fMsg').className = 'msg'; $('empDlg').showModal();
+}
+$('addEmpBtn').onclick = () => openDlg(null);
+window.editEmp = (id) => openDlg(employees.find((e) => e.id === id));
+$('fCancel').onclick = () => $('empDlg').close();
+$('fShift').onchange = () => $('customShift').classList.toggle('hidden', !!$('fShift').value);
+$('fSave').onclick = async () => {
+  const body = { name: $('fName').value, department: $('fDept').value, job_title: $('fJob').value, salary: $('fSalary').value || 0,
+    shift_id: $('fShift').value || null, shift_start: $('fStart').value, shift_end: $('fEnd').value, overtime_after: $('fOT').value, leave_opening: $('fLeaveOpen').value || 0 };
+  if ($('fPass').value) body.password = $('fPass').value;
+  try {
+    if (editId) await api('api/admin/employees/' + editId, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('api/admin/employees', { method: 'POST', body: JSON.stringify({ ...body, username: $('fUser').value }) });
+    $('empDlg').close(); loadEmployees();
+  } catch (e) { msg('fMsg', e.message, false); }
+};
+window.resetDevice = async (id) => {
+  const e = employees.find((x) => x.id === id);
+  if (!confirm(`تفك ربط تلفون ${e.name}؟ أول تلفون يسجل منه بعدين راح ينربط بحسابه.`)) return;
+  await api('api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ reset_device: true }) }); loadEmployees();
+};
+window.toggleEmp = async (id, active) => { await api('api/admin/employees/' + id, { method: 'PUT', body: JSON.stringify({ active }) }); loadEmployees(); };
+
+// ----- الإجازات -----
+async function loadLeaves() {
+  if (!employees.length) await loadEmployees();
+  const month = $('lMonth').value;
+  const [list, abs] = await Promise.all([api('api/admin/leaves?month=' + month), loadAbsent(month)]);
+  $('absentTable').innerHTML = abs.length ? '<tr><th>الموظف</th><th>أيام الغياب</th></tr>' + groupBy(abs).map(([id, rows]) =>
+    `<tr><td>${esc(rows[0].name)}${balTag(id)}${rows.length > 1 ? `<br><button class="secondary small-btn" style="margin-top:6px" onclick="paidLeave(${id}, '${rows.map((r) => r.work_date).join(',')}')">كلها إجازة مدفوعة (${rows.length})</button>` : ''}</td>
+     <td>${rows.map((r) => `<span style="display:inline-flex;gap:6px;align-items:center;margin:3px 0 3px 12px">${r.work_date.slice(5)} ${DAYS[new Date(r.work_date + 'T00:00:00Z').getUTCDay()]}
+       <button class="small-btn" onclick="paidLeave(${id}, '${r.work_date}')">إجازة مدفوعة</button></span>`).join('')}</td></tr>`).join('')
+    : '<tr><td>ما كو غياب بهذا الشهر 👍</td></tr>';
+  $('leaveTable').innerHTML = list.length ? '<tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>ملاحظة</th><th></th></tr>' + list.map((l) =>
+    `<tr><td>${l.leave_date}</td><td>${esc(l.name)}</td><td>${l.counts === 0 ? '<span class="badge">عطلة رسمية</span>' : badge(l.paid ? 'إجازة مدفوعة' : 'إجازة بدون راتب')}</td><td>${esc(l.note)}</td>
+     <td><button class="secondary small-btn" onclick="delLeave(${l.id})">تراجع</button></td></tr>`).join('') : '<tr><td>ما كو إجازات بهذا الشهر</td></tr>';
+}
+async function loadAbsent(month) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ });
+  const from = month + '-01';
+  const [y, m] = month.split('-').map(Number);
+  let to = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+  if (to > today) to = today;
+  if (from > to) return [];
+  return (await api(`api/admin/report?from=${from}&to=${to}`)).filter((r) => r.status === 'غائب');
+}
+function groupBy(rows) {
+  const g = new Map();
+  for (const r of rows) { if (!g.has(r.employee_id)) g.set(r.employee_id, []); g.get(r.employee_id).push(r); }
+  return [...g.entries()];
+}
+const balOf = (id) => (employees.find((e) => e.id === Number(id)) || {}).leave_balance ?? 0;
+const balTag = (id) => { const b = balOf(id); return `<br><span class="muted" style="${b <= 0 ? 'color:var(--red)' : ''}">رصيد الإجازات: ${b} يوم</span>`; };
+window.paidLeave = async (id, dates) => {
+  const n = dates.split(',').length, b = balOf(id);
+  if (n > b && !confirm(`رصيد هذا الموظف ${b} يوم بس، وراح يصير ${b - n}. تريد تسجلها إجازة مدفوعة بكل الأحوال؟`)) return;
+  try {
+    for (const d of dates.split(',')) await api('api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: id, from: d, to: d, paid: 1, note: '' }) });
+    await loadEmployees(); loadLeaves();
+  } catch (e) { alert(e.message); }
+};
+$('lMonth').onchange = loadLeaves;
+$('lFrom').onchange = () => { if (!$('lTo').value || $('lTo').value < $('lFrom').value) $('lTo').value = $('lFrom').value; };
+$('lAdd').onclick = async () => {
+  if ($('lEmp').value !== 'all') {
+    const n = $('lFrom').value && $('lTo').value ? Math.round((new Date($('lTo').value) - new Date($('lFrom').value)) / 864e5) + 1 : 1, b = balOf($('lEmp').value);
+    if (n > b && !confirm(`رصيد هذا الموظف ${b} يوم بس، وراح يصير ${b - n}. تريد تكمل؟`)) return;
+  }
+  try {
+    const d = await api('api/admin/leaves', { method: 'POST', body: JSON.stringify({ employee_id: $('lEmp').value, from: $('lFrom').value, to: $('lTo').value, paid: $('lPaid').value, note: $('lNote').value }) });
+    msg('lMsg', `تم تسجيل ${d.count} يوم ${d.balance === null ? `عطلة رسمية لـ ${d.employees} موظف (ما تنخصم من الرصيد)` : `إجازة. الرصيد الباقي: ${d.balance} يوم`}`, true); await loadEmployees(); $('lMonth').value = $('lFrom').value.slice(0, 7); loadLeaves();
+  } catch (e) { msg('lMsg', e.message, false); }
+};
+window.delLeave = async (id) => { if (!confirm('تلغي هذي الإجازة؟ اليوم يرجع غياب إذا ما بيه بصمة، ويرجع اليوم لرصيده.')) return; await api('api/admin/leaves/' + id, { method: 'DELETE' }); await loadEmployees(); loadLeaves(); };
+
+// ----- الرواتب -----
+async function loadPayroll() {
+  const { rows, totals } = await api('api/admin/payroll?month=' + $('pMonth').value);
+  const red = (v) => `<span style="color:var(--red)">${money(v)}</span>`, green = (v) => `<span style="color:var(--green)">${money(v)}</span>`;
+  $('payTable').innerHTML = '<tr><th>الاسم</th><th>الراتب</th><th>الدوام</th><th>اليومية</th><th>حضور</th><th>غياب</th><th>إجازة مدفوعة</th><th>تأخير بعد السماحية</th><th>إضافي</th><th>راتب الحضور</th><th>خصم التأخير</th><th>مبلغ الإضافي</th><th>المكافآت</th><th>الإجمالي</th><th>السلف</th><th>الصافي</th><th></th></tr>' +
+    rows.map(({ employee: e, summary: s }) => `<tr><td>${esc(e.name)}</td><td>${money(s.base_salary)}</td><td><bdi dir="ltr">${esc(e.shift_name)}</bdi></td><td>${money(s.daily_rate)}</td>
+      <td>${s.present_days}</td><td>${s.absent_days}</td><td>${s.paid_leave_days}</td><td>${s.late_after_allowance} د <span class="muted">(من ${s.late_minutes})</span></td><td>${hrs(s.overtime_minutes)}</td>
+      <td>${money(s.attendance_pay)}</td><td>${red(s.late_deduction)}</td><td>${green(s.overtime_pay)}</td>
+      <td><input type="number" min="0" class="adj" data-id="${e.id}" data-k="bonus" value="${s.bonus || ''}" placeholder="0" style="width:110px;padding:6px"></td>
+      <td>${money(s.gross_salary)}</td>
+      <td><input type="number" min="0" class="adj" data-id="${e.id}" data-k="advance" value="${s.advance || ''}" placeholder="0" style="width:110px;padding:6px"></td>
+      <td><b>${money(s.net_salary)}</b></td>
+      <td><button class="secondary small-btn" onclick="printSlip(${e.id})">🖨️ الفورمة</button></td></tr>`).join('') +
+    `<tr style="font-weight:700;background:#fafbfd"><td>المجموع</td><td>${money(totals.base_salary)}</td><td></td><td></td><td>${totals.present_days}</td><td>${totals.absent_days}</td><td>${totals.paid_leave_days}</td>
+      <td>${totals.late_after_allowance} د</td><td>${hrs(totals.overtime_minutes)}</td><td>${money(totals.attendance_pay)}</td><td>${red(totals.late_deduction)}</td><td>${green(totals.overtime_pay)}</td>
+      <td>${money(totals.bonus)}</td><td>${money(totals.gross_salary)}</td><td>${money(totals.advance)}</td><td>${money(totals.net_salary)}</td><td></td></tr>`;
+  document.querySelectorAll('.adj').forEach((inp) => inp.onchange = async () => {
+    const id = inp.dataset.id;
+    const val = (k) => document.querySelector(`.adj[data-id="${id}"][data-k="${k}"]`).value || 0;
+    try { await api('api/admin/adjustments', { method: 'PUT', body: JSON.stringify({ employee_id: id, month: $('pMonth').value, bonus: val('bonus'), advance: val('advance') }) }); loadPayroll(); }
+    catch (e) { alert(e.message); }
+  });
+  if (!canAdjust) document.querySelectorAll('.adj').forEach((i) => { i.disabled = true; i.title = 'يكتبها المدير بس'; });
+  const s0 = rows[0]?.summary;
+  if (s0) $('payRule').textContent = `اليومية = الراتب ÷ ${s0.month_days}. راتب الحضور = (أيام الحضور + الإجازة المدفوعة) × اليومية. التأخير: سماحية ${s0.late_allowance} دقيقة بالشهر، والزايد بسعر ${money(s0.late_hour_rate)} للساعة. الإضافي بسعر ${money(s0.overtime_hour_rate)} للساعة. المكافآت والسلف تكتبها بالجدول وتنحفظ وحدها.`;
+  const line = (l, v, b) => `<div class="kv"><span>${l}</span><b ${b ? 'class="net"' : ''}>${money(v)}</b></div>`;
+  $('ledger').innerHTML = line('راتب أيام الحضور', totals.attendance_pay) + line('(-) خصم التأخير', totals.late_deduction) + line('(+) مبلغ الإضافي', totals.overtime_pay) +
+    line('(+) المكافآت', totals.bonus) + line('إجمالي الرواتب المستحقة', totals.gross_salary) + line('(-) السلف المستقطعة', totals.advance) + line('صافي الرواتب المدفوعة', totals.net_salary, true);
+}
+$('pCsv').onclick = async () => {
+  const r = await fetch('api/admin/payroll.csv?month=' + $('pMonth').value, { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  if (!r.ok) return alert('حدد الشهر');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `payroll_${$('pMonth').value}.csv`; a.click();
+};
+$('pMonth').onchange = loadPayroll;
+window.printSlip = (id) => window.open(`payslip.html?employee_id=${id}&month=${$('pMonth').value}`, '_blank');
+
+// ----- التقارير -----
+function rangeQuery() { return `from=${$('rFrom').value}&to=${$('rTo').value}&employee_id=${$('rEmp').value}`; }
+$('rRun').onclick = async () => {
+  try {
+    const rows = await api('api/admin/report?' + rangeQuery());
+    const c = (s) => rows.filter((r) => r.status === s).length;
+    const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    $('rSummary').textContent = `حضور: ${c('حاضر') + c('متأخر') + c('دوام بالعطلة')} · تأخير: ${c('متأخر')} · غياب: ${c('غائب')} · إجازة: ${c('إجازة مدفوعة') + c('إجازة بدون راتب')} · ساعات العمل: ${hrs(sum('worked_minutes'))} · أوفر تايم: ${hrs(sum('overtime_minutes'))}`;
+    $('reportTable').innerHTML = attendanceRows(rows, true);
+  } catch (e) { $('rSummary').textContent = e.message; }
+};
+$('rCsv').onclick = async () => {
+  const r = await fetch('api/admin/report.csv?' + rangeQuery(), { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  if (!r.ok) return alert('حدد فترة صحيحة');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
+  a.download = `attendance_${$('rFrom').value}_${$('rTo').value}.csv`; a.click();
+};
+
+// ----- الإعدادات -----
+$('weekendBox').innerHTML = DAYS.map((d, i) => `<label style="flex:0 0 auto;min-width:0;margin:4px 0;color:var(--text)"><input type="checkbox" value="${i}" class="wd" style="width:auto"> ${d}</label>`).join('');
+function showLoc() {
+  const la = $('sLat').value, ln = $('sLng').value;
+  $('locView').innerHTML = la && ln ? `المكان الحالي: <a class="loc" target="_blank" href="https://maps.google.com/?q=${la},${ln}">افتح على الخريطة 📍</a>` : 'ما محدد مكان، يعني البصمة مسموحة من أي مكان.';
+}
+async function loadSettings() {
+  settings = await api('api/admin/settings');
+  $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
+  $('sCompany').value = settings.company_name; $('sColor').value = settings.brand_color || '#1f6feb'; $('sCurrency').value = settings.currency || ''; $('sTz').value = settings.timezone || 'Asia/Baghdad'; $('sSupport').value = settings.support_note || '';
+  logoData = undefined; $('sLogo').value = ''; $('logoPreview').src = settings.has_logo ? 'logo?' + Date.now() : ''; $('logoPreview').classList.toggle('hidden', !settings.has_logo); $('sLogoDel').classList.toggle('hidden', !settings.has_logo); $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sWebhook').value = settings.webhook_url || ''; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1';
+  api('api/admin/changes').then((list) => {
+    const fmt = (at) => new Date(at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { timeZone: APP_TZ, dateStyle: 'short', timeStyle: 'short' });
+    $('changesTable').innerHTML = list.length ? '<tr><th>الوقت</th><th>منو</th><th>الموظف</th><th>التغيير</th><th>كان</th><th>صار</th></tr>' + list.map((c) =>
+      `<tr><td dir="ltr">${fmt(c.at)}</td><td>${c.role === 'accountant' ? '<b>المحاسب</b>' : 'المدير'}</td><td>${esc(c.employee_name)}</td><td>${esc(c.what)}</td><td>${esc(c.old_value ?? '')}</td><td>${esc(c.new_value ?? '')}</td></tr>`).join('')
+      : '<tr><td>ماكو تغييرات بعد</td></tr>';
+  }).catch(() => {});
+  $('sAccUser').value = settings.accountant_user || ''; $('sAccPass').value = ''; $('sAccAdjust').checked = settings.accountant_adjust === '1';
+  $('sAccHint').textContent = settings.accountant_has_password ? '(اتركه فارغ إذا ما تريد تغيّره)' : '';
+  $('sRB').value = settings.remind_before; $('sRL').value = settings.remind_late; $('sRO').value = settings.remind_out_after;
+  const wd = settings.weekend_days.split(',');
+  document.querySelectorAll('.wd').forEach((c) => c.checked = wd.includes(c.value));
+  showLoc(); loadShifts();
+}
+$('sLat').oninput = $('sLng').oninput = showLoc;
+let logoData; // undefined = بدون تغيير، '' = حذف
+$('sLogo').onchange = () => {
+  const f = $('sLogo').files[0]; if (!f) return;
+  if (f.size > 300 * 1024) { $('sLogo').value = ''; return msg('sMsg', 'الشعار كبير، خليه أقل من 300 كيلوبايت', false); }
+  const r = new FileReader();
+  r.onload = () => { logoData = r.result; $('logoPreview').src = logoData; $('logoPreview').classList.remove('hidden'); msg('sMsg', 'اضغط «حفظ الإعدادات» حتى ينحفظ الشعار', true); };
+  r.readAsDataURL(f);
+};
+$('sLogoDel').onclick = () => { logoData = ''; $('logoPreview').classList.add('hidden'); msg('sMsg', 'اضغط «حفظ الإعدادات» حتى ينحذف الشعار', true); };
+$('apBtn').onclick = async () => {
+  try { await api('api/admin/password', { method: 'POST', body: JSON.stringify({ old_password: $('apOld').value, new_password: $('apNew').value }) });
+    msg('apMsg', 'تم تغيير الباسورد', true); $('apOld').value = $('apNew').value = ''; }
+  catch (e) { msg('apMsg', e.message, false); }
+};
+$('useMyLoc').onclick = async () => {
+  msg('sMsg', 'جاري تحديد الموقع...', true);
+  const l = await getLocation();
+  if (l.lat == null) return msg('sMsg', 'تعذر تحديد الموقع. اسمح للمتصفح بالوصول للموقع.', false);
+  $('sLat').value = l.lat.toFixed(6); $('sLng').value = l.lng.toFixed(6); showLoc();
+  msg('sMsg', `تم أخذ الموقع (الدقة تقريباً ${Math.round(l.accuracy)} متر). اضغط حفظ.`, true);
+};
+$('sWebhookTest').onclick = async () => {
+  msg('whMsg', 'جاري الإرسال...', true);
+  try { await api('api/admin/webhook-test', { method: 'POST', body: JSON.stringify({ url: $('sWebhook').value }) }); msg('whMsg', 'وصلت ✅ لا تنسى تضغط «حفظ الإعدادات».', true); }
+  catch (e) { msg('whMsg', e.message, false); }
+};
+$('rsBtn').onclick = async () => {
+  if ($('rsConfirm').value.trim() !== 'تصفير') return msg('rsMsg', 'اكتب كلمة «تصفير» بالمربع', false);
+  if (!confirm('أكيد تريد تمسح كل البصمات والإجازات والسلف والمكافآت؟')) return;
+  try {
+    const d = await api('api/admin/reset', { method: 'POST', body: JSON.stringify({ confirm: $('rsConfirm').value, unbind_devices: $('rsUnbind').checked }) });
+    msg('rsMsg', `تم التصفير: انمسحت ${d.attendance} بصمة و ${d.leaves} إجازة و ${d.adjustments} سلفة/مكافأة.${d.backup ? ' النسخة الاحتياطية: ' + d.backup : ''}`, true);
+    $('rsConfirm').value = ''; $('rsUnbind').checked = false; loadSettings(); loadEmployees().catch(() => {});
+  } catch (e) { msg('rsMsg', e.message, false); }
+};
+$('sSave').onclick = async () => {
+  const weekend_days = [...document.querySelectorAll('.wd')].filter((c) => c.checked).map((c) => c.value).join(',');
+  try {
+    await api('api/admin/settings', { method: 'PUT', body: JSON.stringify({
+      location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
+      company_name: $('sCompany').value, brand_color: $('sColor').value, currency: $('sCurrency').value, timezone: $('sTz').value, support_note: $('sSupport').value,
+      ...(logoData !== undefined ? { logo: logoData } : {}), late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, webhook_url: $('sWebhook').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
+      remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
+    msg('sMsg', 'تم الحفظ', true); loadSettings(); loadInfo();
+  } catch (e) { msg('sMsg', e.message, false); }
+};
+
+// ----- الدوامات -----
+async function loadShifts() {
+  shifts = await api('api/admin/shifts');
+  $('shiftTable').innerHTML = '<tr><th>الاسم</th><th>البداية</th><th>النهاية</th><th>الإضافي من</th><th>الموظفين</th><th></th></tr>' + shifts.map((x) =>
+    `<tr><td><bdi dir="ltr">${esc(x.name)}</bdi></td><td>${x.start}</td><td>${x.end}</td><td>${x.overtime_after}</td><td>${x.employees}</td>
+     <td><button class="secondary small-btn" onclick="editShiftRow(${x.id})">تعديل</button> <button class="secondary small-btn" onclick="delShift(${x.id})">حذف</button></td></tr>`).join('');
+}
+function resetShiftForm() { editShift = null; $('shName').value = ''; $('shSave').textContent = 'إضافة دوام'; $('shCancel').classList.add('hidden'); }
+window.editShiftRow = (id) => {
+  const x = shifts.find((y) => y.id === id); editShift = id;
+  $('shName').value = x.name; $('shStart').value = x.start; $('shEnd').value = x.end; $('shOT').value = x.overtime_after;
+  $('shSave').textContent = 'حفظ التعديل'; $('shCancel').classList.remove('hidden');
+};
+$('shCancel').onclick = resetShiftForm;
+$('shSave').onclick = async () => {
+  const body = JSON.stringify({ name: $('shName').value, start: $('shStart').value, end: $('shEnd').value, overtime_after: $('shOT').value });
+  try {
+    if (editShift) await api('api/admin/shifts/' + editShift, { method: 'PUT', body }); else await api('api/admin/shifts', { method: 'POST', body });
+    msg('shMsg', 'تم الحفظ', true); resetShiftForm(); loadShifts();
+  } catch (e) { msg('shMsg', e.message, false); }
+};
+window.delShift = async (id) => {
+  if (!confirm('حذف هذا الدوام؟')) return;
+  try { await api('api/admin/shifts/' + id, { method: 'DELETE' }); loadShifts(); } catch (e) { msg('shMsg', e.message, false); }
+};
+
+let role = 'admin', canAdjust = true;
+async function start() {
+  let w;
+  try { w = await api('api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { msg('loginMsg', e.message, false); return; }
+  const sub = w.subscription || {};
+  $('warnBar').classList.toggle('hidden', !(sub.days_left != null && sub.days_left <= 7));
+  if (sub.days_left != null) $('warnBar').textContent = sub.days_left <= 0 ? 'اشتراككم ينتهي اليوم. جدّدوه حتى ما يوقف البرنامج.' : `باقي ${sub.days_left} يوم على نهاية اشتراككم (${sub.expires_at}). جدّدوه حتى ما يوقف البرنامج.`;
+  $('empLimit').textContent = sub.max_employees ? `الموظفين الفعّالين: ${sub.employees} من ${sub.max_employees} بباقتك` : '';
+  $('adminPwCard').classList.toggle('hidden', role !== 'admin');
+  const acc = role === 'accountant';
+  $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';
+  ['leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
+  if (acc) document.querySelector('.tabs [data-tab=payroll]').click();
+  $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ });
+  $('rTo').value = today; $('rFrom').value = today.slice(0, 8) + '01'; $('lFrom').value = $('lTo').value = today;
+  $('lMonth').value = $('pMonth').value = today.slice(0, 7);
+  loadToday().catch(() => {}); loadEmployees().catch(() => {});
+}
+// دخول الدعم الفني من لوحة صاحب البرنامج
+{
+  const m = /support=([a-f0-9]{48})/.exec(location.hash);
+  if (m) { store.set('admin_token', m[1]); history.replaceState(null, '', location.pathname); }
+}
+loadInfo().then(() => { if (store.get('admin_token')) start(); });
+</script>
+</body>
+</html>

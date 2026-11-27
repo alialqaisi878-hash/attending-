@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بصمة - الحضور والانصراف والرواتب للشركات</title>
+<meta name="description" content="برنامج حضور وانصراف من تلفون الموظف بموقع العمل، مع الرواتب وفورمة الراتب والإجازات والتنبيهات.">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.svg">
+<style>
+  .hero { text-align: center; padding: 48px 16px 24px; }
+  .hero h1 { font-size: 34px; margin: 0 0 10px; }
+  .hero p { color: var(--muted); font-size: 18px; max-width: 640px; margin: 0 auto; line-height: 1.8; }
+  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .feat .card { margin: 0; }
+  .feat h3 { margin: 0 0 6px; font-size: 17px; }
+  .feat p { margin: 0; color: var(--muted); line-height: 1.7; font-size: 14px; }
+  .enter { display: flex; gap: 8px; }
+  .enter input { flex: 1; }
+  footer { text-align: center; color: var(--muted); padding: 24px 16px 40px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header><div class="brand"><img src="/icon.svg" alt=""><h1 class="product">بصمة</h1></div><a href="#enter">دخول شركتي</a></header>
+<div class="hero">
+  <h1>الحضور والانصراف والرواتب<br>من تلفون الموظف</h1>
+  <p>الموظف يبصم من تلفونه بس وهو بمكان العمل، والبرنامج يحسب التأخير والإضافي والغياب ويطلعلك الراتب وفورمة الراتب جاهزة للطباعة. بدون أجهزة بصمة وبدون تنصيب.</p>
+</div>
+<main>
+  <div class="card narrow" id="enter">
+    <h3 style="margin-top:0;text-align:center">دخول شركتك</h3>
+    <label for="slug">رمز الشركة (موجود بالرابط اللي وصلكم)</label>
+    <div class="enter"><input id="slug" dir="ltr" autocapitalize="off" placeholder="company"><button id="go">دخول</button></div>
+    <div class="msg" id="m"></div>
+  </div>
+  <div class="feat">
+    <div class="card"><h3>📍 بصمة بمكان العمل بس</h3><p>تحدد موقع الشركة والمسافة المسموحة، والبصمة من برّه المكان تنرفض.</p></div>
+    <div class="card"><h3>📱 تلفون واحد لكل موظف</h3><p>الحساب ينربط بتلفون الموظف، فما يكدر ينطي حسابه لزميله يبصم عنه.</p></div>
+    <div class="card"><h3>💰 رواتب تنحسب وحدها</h3><p>اليومية، خصم التأخير بعد السماحية، الإضافي، الغياب، المكافآت والسلف، وكلها حسب إعداداتك.</p></div>
+    <div class="card"><h3>🖨️ فورمة راتب وإكسل</h3><p>كشف راتب شهري لكل موظف جاهز للطباعة والتوقيع، وتنزيل الرواتب والتقارير Excel.</p></div>
+    <div class="card"><h3>🏖️ الإجازات والعطل</h3><p>رصيد إجازات شهري يتجمع، وأيام الغياب تحولها إجازة مدفوعة بضغطة، وعطل رسمية لكل الموظفين.</p></div>
+    <div class="card"><h3>🔔 تذكير على التلفون</h3><p>تنبيه قبل الدوام، وإذا تأخر، وإذا نسى يبصم انصراف.</p></div>
+    <div class="card"><h3>📵 يشتغل بدون نت</h3><p>إذا انقطع النت البصمة تنحفظ بالتلفون وترتفع وحدها، وتطلع معلّمة للمدير.</p></div>
+    <div class="card"><h3>👥 حساب للمحاسب</h3><p>المحاسب يشوف الرواتب ويطبع، وكل تعديل ينحفظ بسجل التغييرات.</p></div>
+  </div>
+</main>
+<footer><div id="contact"></div><div style="margin-top:6px">الموظف يفتح الرابط من التلفون ويضيفه للشاشة الرئيسية، ويصير مثل التطبيق.</div></footer>
+<script>
+const $ = (id) => document.getElementById(id);
+fetch('/api/product').then((r) => r.json()).then((p) => {
+  document.querySelectorAll('.product').forEach((e) => (e.textContent = p.product_name));
+  document.title = `${p.product_name} - الحضور والانصراف والرواتب للشركات`;
+  if (p.support_phone) {
+    const wa = p.support_phone.replace(/[^0-9]/g, '').replace(/^0/, '964');
+    $('contact').innerHTML = `للاشتراك أو تجربة مجانية: <a href="https://wa.me/${wa}" target="_blank" rel="noopener">واتساب ${p.support_phone.replace(/[<>&"]/g, '')}</a>`;
+  }
+}).catch(() => {});
+$('go').onclick = async () => {
+  const s = $('slug').value.trim().toLowerCase().replace(/^.*\//, '');
+  if (!s) return;
+  const r = await fetch('/api/company/' + encodeURIComponent(s));
+  if (r.ok) location.href = '/' + s + '/';
+  else { $('m').textContent = 'رمز الشركة غير موجود. تأكد من الرابط اللي وصلكم.'; $('m').className = 'msg err'; }
+};
+$('slug').onkeydown = (e) => { if (e.key === 'Enter') $('go').click(); };
+</script>
+</body>
+</html>

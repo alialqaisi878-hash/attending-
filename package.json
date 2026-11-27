@@ -1,0 +1,20 @@
+{
+  "name": "hudoor-saas",
+  "version": "1.0.0",
+  "description": "برنامج حضور وانصراف ورواتب للشركات (اشتراكات)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.22.3",
+    "web-push": "^3.6.7"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
