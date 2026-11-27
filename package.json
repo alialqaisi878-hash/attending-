@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "express": "^4.22.3",
+    "qrcode": "^1.5.4",
     "web-push": "^3.6.7"
   },
   "engines": {

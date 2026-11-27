@@ -269,6 +269,10 @@ $('pushBtn').onclick = async () => {
   } catch (e) { msg('pushMsg', 'تعذر تفعيل التنبيهات: ' + e.message, false); }
 };
 
+{ // دخول تلقائي (الشركة التجريبية أو التطبيق)
+  const m = /emp=([a-f0-9]{48})/.exec(location.hash);
+  if (m) { store.set('emp_token', m[1]); history.replaceState(null, '', location.pathname); }
+}
 if (store.get('emp_token')) loadHome().then(syncQueue).catch(() => {});
 </script>
 </body>

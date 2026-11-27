@@ -31,6 +31,7 @@
   <h1>الحضور والانصراف والرواتب<br>من تلفون الموظف</h1>
   <p>الموظف يبصم من تلفونه بس وهو بمكان العمل، والبرنامج يحسب التأخير والإضافي والغياب ويطلعلك الراتب وفورمة الراتب جاهزة للطباعة. بدون أجهزة بصمة وبدون تنصيب.</p>
   <a href="#signup"><button class="cta" id="ctaBtn">جرّب مجاناً</button></a>
+  <div class="row" style="max-width:420px;margin:12px auto 0"><button class="secondary" onclick="demo('admin')">👀 شوف كمدير (تجريبي)</button><button class="secondary" onclick="demo('employee')">📱 شوف كموظف (تجريبي)</button></div>
 </div>
 <main>
   <div class="card narrow" id="signup">
@@ -69,6 +70,7 @@
 <footer><div id="contact"></div><div style="margin-top:6px">الموظف يفتح الرابط من التلفون ويضيفه للشاشة الرئيسية، ويصير مثل التطبيق.</div></footer>
 <script>
 const $ = (id) => document.getElementById(id);
+async function demo(as) { const d = await (await fetch('/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ as }) })).json(); location.href = d.url; }
 $('suHost').textContent = location.host + '/';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 fetch('/api/plans').then((r) => r.json()).then((d) => {

@@ -9,6 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 const webpush = require('web-push');
 const { createTenant } = require('./lib/tenant');
 const { hashPassword, checkPassword, randomPassword, loginLimiter } = require('./lib/util');
+const { DEMO_SLUG, seedDemo } = require('./lib/demo');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -20,7 +21,7 @@ const SITE_DIR = path.join(__dirname, 'site');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BACKUP_KEEP_DAYS = 14;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,29}$/;
-const RESERVED = new Set(['super', 'api', 'admin', 'www', 'app', 'static', 'assets', 'login', 'help', 'support', 'demo-admin']);
+const RESERVED = new Set([DEMO_SLUG, 'super', 'api', 'admin', 'www', 'app', 'static', 'assets', 'login', 'help', 'support', 'demo-admin']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 if (!MEMORY) for (const d of [DATA_DIR, TENANTS_DIR, BACKUP_DIR, DELETED_DIR]) fs.mkdirSync(d, { recursive: true });
@@ -110,6 +111,24 @@ function statusMessage(st) {
   return '';
 }
 
+// ---------- الشركة التجريبية (محاكاة) ----------
+function ensureDemo() {
+  if (!getCompany(DEMO_SLUG)) {
+    master.prepare("INSERT INTO companies(slug, name, max_employees, notes) VALUES (?, 'شركة المستقبل (تجريبية)', 10, 'شركة تجريبية للعرض، ترجع كل يوم')").run(DEMO_SLUG);
+    openTenant(DEMO_SLUG).setAdminPassword(randomPassword(16));
+  }
+  seedDemo(openTenant(DEMO_SLUG));
+}
+// كل يوم نمسح الشركة التجريبية ونرجّع بياناتها
+function resetDemo() {
+  const t = tenants.get(DEMO_SLUG);
+  if (t) { t.close(); tenants.delete(DEMO_SLUG); }
+  if (!MEMORY) for (const ext of ['.db', '.db-wal', '.db-shm']) fs.rmSync(path.join(TENANTS_DIR, DEMO_SLUG + ext), { force: true });
+  master.prepare('DELETE FROM companies WHERE slug = ?').run(DEMO_SLUG);
+  ensureDemo();
+}
+ensureDemo();
+
 // ---------- التطبيق ----------
 const app = express();
 app.set('trust proxy', 1); // ورا Traefik: نعرف عنوان الزبون الحقيقي لحماية الدخول
@@ -161,6 +180,13 @@ app.post('/api/signup', (req, res) => {
   res.json({ ok: true, slug, expires_at: c.expires_at, token: openTenant(slug).supportSession(), url: `/${slug}/` });
 });
 for (const f of ['style.css', 'icon.svg']) app.get('/' + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
+// زر «جرّب» بالصفحة الرئيسية والتطبيق: يفتح الشركة التجريبية كمدير أو كموظف
+app.post('/api/demo', (req, res) => {
+  const t = openTenant(DEMO_SLUG);
+  const as = (req.body || {}).as === 'employee' ? 'employee' : 'admin';
+  const token = as === 'employee' ? t.employeeSession('ahmed') : t.supportSession();
+  res.json({ slug: DEMO_SLUG, as, token, url: as === 'employee' ? `/${DEMO_SLUG}/#emp=${token}` : `/${DEMO_SLUG}/admin.html#support=${token}` });
+});
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // ----- لوحة صاحب البرنامج -----
@@ -190,7 +216,7 @@ function companyRow(c) {
   return { ...st, ...stats, name: c.name };
 }
 app.get('/super/api/companies', superAuth, (req, res) => {
-  const rows = master.prepare('SELECT * FROM companies ORDER BY created_at DESC').all().map(companyRow);
+  const rows = master.prepare('SELECT * FROM companies WHERE slug != ? ORDER BY created_at DESC').all(DEMO_SLUG).map(companyRow);
   const live = rows.filter((r) => r.status === 'active');
   res.json({
     rows,
@@ -381,6 +407,9 @@ app.use('/:slug', (req, res, next) => {
     return res.redirect(301, '/' + slug + '/' + req.originalUrl.slice(req.params.slug.length + 1));
   }
   const t = openTenant(slug);
+  if (slug === DEMO_SLUG && req.method !== 'GET' && /^\/api\/(admin\/(reset|password|settings)|me\/password)/.test(req.path)) {
+    return res.status(403).json({ error: 'هذي شركة تجريبية، هذا الخيار يشتغل بشركتك الحقيقية. سجّل شركتك مجاناً.' });
+  }
   const st = companyStatus(c, t);
   // إذا الاشتراك منتهي أو موقوف: الصفحات تفتح وتعرض الرسالة، بس الـ API يرفض
   if (st.status !== 'active' && req.path.startsWith('/api/') && req.path !== '/api/info') {
@@ -408,7 +437,10 @@ async function tick() {
   }
 }
 // نسخة احتياطية يومية لكل شركة، ونخلي آخر 14 يوم
+let demoDay = null;
 function dailyBackup() {
+  if (demoDay && demoDay !== today()) resetDemo();
+  demoDay = today();
   if (MEMORY) return;
   const day = today();
   const dir = path.join(BACKUP_DIR, day);

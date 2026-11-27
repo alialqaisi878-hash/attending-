@@ -208,3 +208,19 @@ test('owner defines plans and activates one for a company', async () => {
   const plans = await get('/super/api/plans', sup);
   assert.equal(plans.find((x) => x.id === year).companies, 1);
 });
+
+test('demo company: try as admin or employee, protected from destructive actions, hidden from owner list', async () => {
+  const a = await (await post('/api/demo', { as: 'admin' })).json();
+  assert.equal((await get('/demo/api/admin/whoami', a.token)).role, 'admin');
+  const emps = await get('/demo/api/admin/employees', a.token);
+  assert.ok(emps.length >= 5);
+  const e = await (await post('/api/demo', { as: 'employee' })).json();
+  const me = await get('/demo/api/me', e.token);
+  assert.equal(me.employee.username, 'ahmed'); assert.ok(me.summary.base_salary > 0);
+  assert.equal((await put('/demo/api/admin/settings', { company_name: 'x' }, a.token)).status, 403);
+  assert.equal((await post('/demo/api/admin/reset', { confirm: 'تصفير' }, a.token)).status, 403);
+  assert.ok(!(await get('/super/api/companies', sup)).rows.some((c) => c.slug === 'demo'));
+  assert.equal((await post('/super/api/companies', { slug: 'demo', name: 'x' }, sup)).status, 400);
+  const qr = await call('GET', '/demo/qr.svg');
+  assert.match(await qr.text(), /<svg/);
+});
