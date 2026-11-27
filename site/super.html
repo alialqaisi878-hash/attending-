@@ -27,6 +27,7 @@
     <div class="stats">
       <div class="stat"><div class="n" id="tCompanies">0</div><div class="l">الشركات</div></div>
       <div class="stat"><div class="n" id="tActive" style="color:var(--green)">0</div><div class="l">اشتراك فعّال</div></div>
+      <div class="stat"><div class="n" id="tTrials" style="color:var(--primary)">0</div><div class="l">على التجربة المجانية</div></div>
       <div class="stat"><div class="n" id="tSoon" style="color:var(--amber)">0</div><div class="l">ينتهي خلال أسبوع</div></div>
       <div class="stat"><div class="n" id="tEmployees">0</div><div class="l">موظفين بالشركات الفعّالة</div></div>
       <div class="stat"><div class="n" id="tIncome" style="font-size:22px">0</div><div class="l">الدخل الشهري (الفعّالة)</div></div>
@@ -37,10 +38,30 @@
       <div class="table-wrap" style="margin-top:10px"><table id="cTable"></table></div>
     </div>
 
+    <div class="card">
+      <h3 style="margin-top:0">الباقات</h3>
+      <p class="muted" style="margin-top:0">الباقات تطلع للزبائن بالصفحة الرئيسية. لما تفعّل باقة لشركة: عدد موظفينها يصير حسب الباقة، والمدة تنضاف لاشتراكها.</p>
+      <div class="table-wrap"><table id="planTable"></table></div>
+      <div class="row" style="align-items:end;margin-top:10px">
+        <div><label>اسم الباقة</label><input id="plName" placeholder="مثلاً: الأساسية"></div>
+        <div><label>أقصى عدد موظفين (0 = مفتوح)</label><input type="number" min="0" id="plMax" value="10"></div>
+        <div><label>المدة (شهر)</label><input type="number" min="1" max="36" id="plMonths" value="1"></div>
+        <div><label>السعر</label><input type="number" min="0" id="plPrice"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="plActive" style="width:auto" checked> تطلع للزبائن بالصفحة الرئيسية</label>
+      <div class="row" style="margin-top:10px"><button id="plSave">إضافة باقة</button><button class="secondary hidden" id="plCancel">إلغاء التعديل</button></div>
+      <div class="msg" id="plMsg"></div>
+    </div>
+
     <div class="card narrow">
       <h3 style="margin-top:0">إعدادات البرنامج</h3>
       <label>اسم البرنامج (يطلع بالصفحة الرئيسية)</label><input id="pName">
       <label>رقم التواصل (واتساب) يطلع للزبائن ولما ينتهي الاشتراك</label><input id="pPhone" dir="ltr" placeholder="07xxxxxxxxx">
+      <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="pSignup" style="width:auto"> أي واحد يكدر يسجّل شركته من الصفحة الرئيسية</label>
+      <div class="row">
+        <div><label>أيام التجربة المجانية</label><input type="number" min="1" max="90" id="pTrialDays"></div>
+        <div><label>عدد الموظفين بالتجربة</label><input type="number" min="1" max="100" id="pTrialEmps"></div>
+      </div>
       <button style="margin-top:12px" id="pSave">حفظ</button>
       <h3>تغيير باسوردك</h3>
       <label>الباسورد الحالي</label><input type="password" id="pOld" dir="ltr">
@@ -78,6 +99,14 @@
   <div class="msg" id="fMsg"></div>
 </dialog>
 
+<dialog id="planDlg">
+  <h3 style="margin-top:0" id="pdTitle">تفعيل باقة</h3>
+  <label>الباقة</label><select id="pdPlan"></select>
+  <p class="muted" id="pdNote"></p>
+  <div class="row" style="margin-top:12px"><button id="pdSave">تفعيل</button><button class="secondary" onclick="planDlg.close()">إلغاء</button></div>
+  <div class="msg" id="pdMsg"></div>
+</dialog>
+
 <dialog id="welcome">
   <h3 style="margin-top:0">معلومات الدخول للشركة</h3>
   <p class="muted" style="margin-top:0">انسخها ودزها للشركة. الباسورد ما يطلع مرة ثانية (تكدر تسوي واحد جديد بأي وقت).</p>
@@ -109,17 +138,17 @@ const STATUS = { active: 'فعّال', expired: 'منتهي', suspended: 'موق
 const linkOf = (slug) => `${location.origin}/${slug}/`;
 async function load() {
   const d = await api('/super/api/companies'); rows = d.rows;
-  $('tCompanies').textContent = d.totals.companies; $('tActive').textContent = d.totals.active; $('tSoon').textContent = d.totals.expiring_soon;
+  $('tCompanies').textContent = d.totals.companies; $('tActive').textContent = d.totals.active; $('tTrials').textContent = d.totals.trials; $('tSoon').textContent = d.totals.expiring_soon;
   $('tEmployees').textContent = d.totals.employees; $('tIncome').textContent = money(d.totals.monthly_income);
   $('cTable').innerHTML = rows.length ? '<tr><th>الشركة</th><th>الرابط</th><th>الحالة</th><th>ينتهي</th><th>الموظفين</th><th>آخر بصمة</th><th>السعر</th><th>التواصل</th><th></th></tr>' + rows.map((c) => {
     const dl = c.days_left;
     const left = c.expires_at ? `${c.expires_at}<br><span class="${dl < 0 ? 'late' : dl <= 7 ? 'soon' : 'muted'}">${dl < 0 ? `منتهي من ${-dl} يوم` : dl === 0 ? 'ينتهي اليوم' : `باقي ${dl} يوم`}</span>` : 'بدون انتهاء';
     return `<tr><td><b>${esc(c.name)}</b>${c.company_name && c.company_name !== c.name ? `<br><span class="muted">${esc(c.company_name)}</span>` : ''}${c.notes ? `<br><span class="muted">${esc(c.notes)}</span>` : ''}</td>
       <td dir="ltr"><a href="/${c.slug}/" target="_blank">/${esc(c.slug)}/</a></td>
-      <td><span class="badge b-${c.status}">${STATUS[c.status]}</span></td><td>${left}</td>
+      <td><span class="badge b-${c.status}">${STATUS[c.status]}</span><br><span class="muted">${c.trial ? 'تجربة مجانية' : esc(c.plan_name || '')}${c.self_signup ? ' · سجّل بنفسه' : ''}</span></td><td>${left}</td>
       <td>${c.employees ?? '—'}${c.max_employees ? ' / ' + c.max_employees : ''}</td><td>${c.last_punch || '—'}</td><td>${money(c.price)}</td>
       <td>${esc(c.contact_name)}<br><span dir="ltr">${esc(c.phone)}</span></td>
-      <td><button class="small-btn" onclick="extend('${c.slug}', 1)">+ شهر</button> <button class="small-btn" onclick="extend('${c.slug}', 12)">+ سنة</button><br>
+      <td><button class="small-btn" onclick="activatePlan('${c.slug}')">تفعيل باقة</button> <button class="small-btn" onclick="extend('${c.slug}', 1)">+ شهر</button> <button class="small-btn" onclick="extend('${c.slug}', 12)">+ سنة</button><br>
         <button class="secondary small-btn" onclick="edit('${c.slug}')">تعديل</button>
         <button class="secondary small-btn" onclick="toggle('${c.slug}', ${c.active ? 0 : 1})">${c.active ? 'إيقاف' : 'تفعيل'}</button><br>
         <button class="secondary small-btn" onclick="support('${c.slug}')">دخول كمدير</button>
@@ -186,16 +215,58 @@ window.del = async (slug) => {
   try { await api('/super/api/companies/' + slug, { method: 'DELETE', body: JSON.stringify({ confirm: v.trim() }) }); load(); } catch (e) { alert(e.message); }
 };
 $('pSave').onclick = async () => {
-  try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ product_name: $('pName').value, support_phone: $('pPhone').value }) }); msg('pMsg', 'تم الحفظ', true); settings = await api('/super/api/settings'); }
+  try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ product_name: $('pName').value, support_phone: $('pPhone').value,
+    signup_enabled: $('pSignup').checked, trial_days: $('pTrialDays').value, trial_employees: $('pTrialEmps').value }) }); msg('pMsg', 'تم الحفظ', true); settings = await api('/super/api/settings'); }
   catch (e) { msg('pMsg', e.message, false); }
 };
 $('pPw').onclick = async () => {
   try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ old_password: $('pOld').value, new_password: $('pNew').value }) }); msg('pMsg', 'تم تغيير الباسورد', true); $('pOld').value = $('pNew').value = ''; }
   catch (e) { msg('pMsg', e.message, false); }
 };
+// ----- الباقات -----
+let plans = [], editPlan = null, planSlug = null;
+const dur = (m) => (m === 1 ? 'شهر' : m === 12 ? 'سنة' : m + ' أشهر');
+async function loadPlans() {
+  plans = await api('/super/api/plans');
+  $('planTable').innerHTML = plans.length ? '<tr><th>الباقة</th><th>الموظفين</th><th>المدة</th><th>السعر</th><th>تطلع للزبائن</th><th>الشركات عليها</th><th></th></tr>' + plans.map((p) =>
+    `<tr><td><b>${esc(p.name)}</b></td><td>${p.max_employees || 'مفتوح'}</td><td>${dur(p.months)}</td><td>${money(p.price)}</td><td>${p.active ? 'نعم' : 'لا'}</td><td>${p.companies}</td>
+     <td><button class="secondary small-btn" onclick="editPlanRow(${p.id})">تعديل</button> <button class="secondary small-btn" onclick="delPlan(${p.id})">حذف</button></td></tr>`).join('')
+    : '<tr><td>ما كو باقات بعد. ضيف باقاتك تحت (مثلاً: 10 موظفين شهري، 25 موظف شهري، 50 موظف سنوي).</td></tr>';
+}
+function resetPlanForm() { editPlan = null; $('plName').value = ''; $('plPrice').value = ''; $('plSave').textContent = 'إضافة باقة'; $('plCancel').classList.add('hidden'); }
+window.editPlanRow = (id) => {
+  const p = plans.find((x) => x.id === id); editPlan = id;
+  $('plName').value = p.name; $('plMax').value = p.max_employees; $('plMonths').value = p.months; $('plPrice').value = p.price; $('plActive').checked = !!p.active;
+  $('plSave').textContent = 'حفظ التعديل'; $('plCancel').classList.remove('hidden');
+};
+$('plCancel').onclick = resetPlanForm;
+$('plSave').onclick = async () => {
+  const body = JSON.stringify({ name: $('plName').value, max_employees: $('plMax').value || 0, months: $('plMonths').value, price: $('plPrice').value || 0, active: $('plActive').checked });
+  try {
+    if (editPlan) await api('/super/api/plans/' + editPlan, { method: 'PUT', body }); else await api('/super/api/plans', { method: 'POST', body });
+    msg('plMsg', 'تم الحفظ', true); resetPlanForm(); loadPlans();
+  } catch (e) { msg('plMsg', e.message, false); }
+};
+window.delPlan = async (id) => { if (!confirm('حذف الباقة؟ الشركات اللي عليها تبقى على حدودها الحالية.')) return; await api('/super/api/plans/' + id, { method: 'DELETE' }); loadPlans(); };
+window.activatePlan = async (slug) => {
+  if (!plans.length) await loadPlans();
+  if (!plans.length) return alert('ضيف باقة أول من قسم الباقات.');
+  const c = rows.find((x) => x.slug === slug); planSlug = slug;
+  $('pdTitle').textContent = 'تفعيل باقة: ' + c.name;
+  $('pdPlan').innerHTML = plans.map((p) => `<option value="${p.id}">${esc(p.name)} · ${p.max_employees || 'مفتوح'} موظف · ${dur(p.months)} · ${money(p.price)}</option>`).join('');
+  $('pdNote').textContent = c.trial || c.status !== 'active' ? 'المدة تبدي من اليوم.' : `المدة تنضاف لنهاية الاشتراك الحالي (${c.expires_at || 'بدون انتهاء'}).`;
+  $('pdMsg').className = 'msg'; $('planDlg').showModal();
+};
+$('pdSave').onclick = async () => {
+  try { const d = await api('/super/api/companies/' + planSlug, { method: 'PUT', body: JSON.stringify({ plan_id: $('pdPlan').value }) });
+    $('planDlg').close(); load(); alert('تم التفعيل. الاشتراك لحد ' + d.expires_at); }
+  catch (e) { msg('pdMsg', e.message, false); }
+};
 async function start() {
   try { settings = await api('/super/api/settings'); } catch (e) { return; }
   $('pName').value = settings.product_name; $('pPhone').value = settings.support_phone;
+  $('pSignup').checked = settings.signup_enabled; $('pTrialDays').value = settings.trial_days; $('pTrialEmps').value = settings.trial_employees;
+  loadPlans().catch(() => {});
   $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
   load().catch((e) => alert(e.message));
 }

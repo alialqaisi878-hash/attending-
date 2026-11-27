@@ -16,17 +16,39 @@
   .feat h3 { margin: 0 0 6px; font-size: 17px; }
   .feat p { margin: 0; color: var(--muted); line-height: 1.7; font-size: 14px; }
   .enter { display: flex; gap: 8px; }
+  .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .plan { text-align: center; margin: 0; }
+  .plan .price { font-size: 26px; font-weight: 700; color: var(--primary); margin: 8px 0 4px; }
+  .cta { display: block; width: 100%; max-width: 320px; margin: 18px auto 0; font-size: 18px; padding: 14px; }
+  h2.sec { text-align: center; margin: 28px 0 14px; }
   .enter input { flex: 1; }
   footer { text-align: center; color: var(--muted); padding: 24px 16px 40px; font-size: 14px; }
 </style>
 </head>
 <body>
-<header><div class="brand"><img src="/icon.svg" alt=""><h1 class="product">بصمة</h1></div><a href="#enter">دخول شركتي</a></header>
+<header><div class="brand"><img src="/icon.svg" alt=""><h1 class="product">بصمة</h1></div><span><a href="#signup">جرّب مجاناً</a> &nbsp; <a href="#enter">دخول شركتي</a></span></header>
 <div class="hero">
   <h1>الحضور والانصراف والرواتب<br>من تلفون الموظف</h1>
   <p>الموظف يبصم من تلفونه بس وهو بمكان العمل، والبرنامج يحسب التأخير والإضافي والغياب ويطلعلك الراتب وفورمة الراتب جاهزة للطباعة. بدون أجهزة بصمة وبدون تنصيب.</p>
+  <a href="#signup"><button class="cta" id="ctaBtn">جرّب مجاناً</button></a>
 </div>
 <main>
+  <div class="card narrow" id="signup">
+    <h3 style="margin-top:0;text-align:center">سجّل شركتك وجرّب مجاناً</h3>
+    <p class="muted" style="text-align:center;margin-top:0" id="trialNote">تجربة مجانية بدون أي دفع.</p>
+    <label for="suName">اسم الشركة</label><input id="suName" autocomplete="organization">
+    <label for="suContact">اسمك</label><input id="suContact" autocomplete="name">
+    <label for="suPhone">رقم التلفون (واتساب)</label><input id="suPhone" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="07xxxxxxxxx">
+    <label for="suSlug">رابط شركتك (اختياري، إنگليزي)</label>
+    <div class="enter" dir="ltr"><span class="muted" style="align-self:center" id="suHost"></span><input id="suSlug" autocapitalize="off" placeholder="mycompany"></div>
+    <label for="suPass">باسورد مدير الشركة (8 أحرف أو أكثر)</label><input id="suPass" type="password" dir="ltr" autocomplete="new-password">
+    <button style="width:100%;margin-top:16px" id="suBtn">ابدأ التجربة</button>
+    <div class="msg" id="suMsg"></div>
+  </div>
+  <div id="plansBox" class="hidden">
+    <h2 class="sec">الباقات</h2>
+    <div class="plans" id="plans"></div>
+  </div>
   <div class="card narrow" id="enter">
     <h3 style="margin-top:0;text-align:center">دخول شركتك</h3>
     <label for="slug">رمز الشركة (موجود بالرابط اللي وصلكم)</label>
@@ -47,6 +69,29 @@
 <footer><div id="contact"></div><div style="margin-top:6px">الموظف يفتح الرابط من التلفون ويضيفه للشاشة الرئيسية، ويصير مثل التطبيق.</div></footer>
 <script>
 const $ = (id) => document.getElementById(id);
+$('suHost').textContent = location.host + '/';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+fetch('/api/plans').then((r) => r.json()).then((d) => {
+  $('trialNote').textContent = `تجربة مجانية ${d.trial_days} يوم على ${d.trial_employees === 1 ? 'موظف واحد' : d.trial_employees + ' موظفين'}، بدون أي دفع. بعدها تختار الباقة اللي تناسبك.`;
+  if (!d.signup_enabled) { $('signup').classList.add('hidden'); $('ctaBtn').classList.add('hidden'); }
+  if (d.plans.length) {
+    $('plansBox').classList.remove('hidden');
+    $('plans').innerHTML = d.plans.map((p) => `<div class="card plan"><h3 style="margin:0">${esc(p.name)}</h3>
+      <div class="price">${Number(p.price).toLocaleString('en-US')}</div><div class="muted">${p.months === 1 ? 'شهرياً' : p.months === 12 ? 'سنوياً' : `لكل ${p.months} أشهر`}</div>
+      <p style="margin:10px 0 0">${p.max_employees ? `لحد ${p.max_employees} موظف` : 'موظفين بدون حد'}</p></div>`).join('');
+  }
+}).catch(() => {});
+$('suBtn').onclick = async () => {
+  $('suBtn').disabled = true;
+  try {
+    const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      company_name: $('suName').value, contact_name: $('suContact').value, phone: $('suPhone').value, slug: $('suSlug').value, password: $('suPass').value }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'خطأ');
+    $('suMsg').textContent = 'تم! جاري فتح لوحة شركتك...'; $('suMsg').className = 'msg ok';
+    location.href = `/${d.slug}/admin.html#support=${d.token}`;
+  } catch (e) { $('suMsg').textContent = e.message; $('suMsg').className = 'msg err'; $('suBtn').disabled = false; }
+};
 fetch('/api/product').then((r) => r.json()).then((p) => {
   document.querySelectorAll('.product').forEach((e) => (e.textContent = p.product_name));
   document.title = `${p.product_name} - الحضور والانصراف والرواتب للشركات`;

@@ -159,3 +159,52 @@ test('webhooks cannot reach the server or its private network', async () => {
   await assert.rejects(assertPublicUrl('http://localhost:5678/webhook'));
   await assert.rejects(assertPublicUrl('http://172.18.0.3/'));
 });
+
+test('anyone can sign up and gets a one-employee free trial', async () => {
+  const bad = await post('/api/signup', { company_name: 'x', phone: '12', password: 'pass12345' });
+  assert.equal(bad.status, 400);
+  assert.equal((await post('/api/signup', { company_name: 'x', phone: '07701234567', password: 'short' })).status, 400);
+  const r = await post('/api/signup', { company_name: 'محل الأمل', contact_name: 'حسين', phone: '07701234567', password: 'amal12345' });
+  assert.ok(r.ok, await r.text());
+  const d = await (await post('/api/signup', { company_name: 'محل الأمل 2', phone: '07701234568', slug: 'amal', password: 'amal12345' })).json();
+  assert.equal(d.slug, 'amal');
+  assert.equal((await post('/api/signup', { company_name: 'dup', phone: '07701234569', slug: 'amal', password: 'amal12345' })).status, 400);
+  // the returned token opens the company admin right away
+  const w = await get('/amal/api/admin/whoami', d.token);
+  assert.equal(w.role, 'admin'); assert.equal(w.subscription.trial, true); assert.equal(w.subscription.max_employees, 1);
+  assert.ok(await adminLogin('amal', 'amal12345'));
+  assert.ok((await post('/amal/api/admin/employees', { username: 'e1', name: '1', password: 'pass1234' }, d.token)).ok);
+  const over = await post('/amal/api/admin/employees', { username: 'e2', name: '2', password: 'pass1234' }, d.token);
+  assert.equal(over.status, 400); assert.match((await over.json()).error, /التجربة/);
+  const row = (await get('/super/api/companies', sup)).rows.find((c) => c.slug === 'amal');
+  assert.equal(row.trial, 1); assert.equal(row.self_signup, 1);
+  // owner can turn sign-up off
+  assert.ok((await put('/super/api/settings', { signup_enabled: false }, sup)).ok);
+  assert.equal((await post('/api/signup', { company_name: 'y', phone: '07701111119', password: 'pass12345' })).status, 403);
+  assert.ok((await put('/super/api/settings', { signup_enabled: true, trial_days: 7, trial_employees: 2 }, sup)).ok);
+  const p = await get('/api/plans');
+  assert.equal(p.trial_days, 7); assert.equal(p.trial_employees, 2);
+});
+
+test('owner defines plans and activates one for a company', async () => {
+  assert.equal((await post('/super/api/plans', { name: '', max_employees: 5, months: 1, price: 1 }, sup)).status, 400);
+  const basic = (await (await post('/super/api/plans', { name: 'الأساسية', max_employees: 10, months: 1, price: 25000 }, sup)).json()).id;
+  const year = (await (await post('/super/api/plans', { name: 'السنوية', max_employees: 50, months: 12, price: 600000 }, sup)).json()).id;
+  await post('/super/api/plans', { name: 'مخفية', max_employees: 5, months: 1, price: 1, active: false }, sup);
+  const pub = await get('/api/plans');
+  assert.deepEqual(pub.plans.map((x) => x.name), ['الأساسية', 'السنوية']);
+  const s = await (await post('/api/signup', { company_name: 'مخبز', phone: '07709998887', slug: 'bakery', password: 'bake12345' })).json();
+  const act = await (await put('/super/api/companies/bakery', { plan_id: basic }, sup)).json();
+  const d = new Date(); const exp = act.expires_at;
+  assert.ok(exp > d.toISOString().slice(0, 10));
+  const w = await get('/bakery/api/admin/whoami', s.token);
+  assert.equal(w.subscription.trial, false); assert.equal(w.subscription.plan_name, 'الأساسية'); assert.equal(w.subscription.max_employees, 10);
+  // a second activation adds to the end of the current subscription
+  const act2 = await (await put('/super/api/companies/bakery', { plan_id: year }, sup)).json();
+  const [y, m] = exp.split('-').map(Number);
+  assert.equal(act2.expires_at.slice(0, 4), String(y + 1)); assert.equal(Number(act2.expires_at.slice(5, 7)), m);
+  const row = (await get('/super/api/companies', sup)).rows.find((c) => c.slug === 'bakery');
+  assert.equal(row.price, 50000); assert.equal(row.max_employees, 50); // monthly price shown in the income total
+  const plans = await get('/super/api/plans', sup);
+  assert.equal(plans.find((x) => x.id === year).companies, 1);
+});

@@ -39,15 +39,36 @@ master.exec(`
     notes TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    max_employees INTEGER NOT NULL DEFAULT 0,  -- 0 = مفتوح
+    months INTEGER NOT NULL DEFAULT 1,         -- مدة الباقة
+    price REAL NOT NULL DEFAULT 0,             -- سعر الباقة كاملة
+    active INTEGER NOT NULL DEFAULT 1,         -- تطلع للزبائن
+    sort INTEGER NOT NULL DEFAULT 0
+  );
   CREATE TABLE IF NOT EXISTS super_sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS master_settings (key TEXT PRIMARY KEY, value TEXT);
   CREATE TABLE IF NOT EXISTS super_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), slug TEXT, what TEXT NOT NULL
   );
 `);
+{
+  const cols = master.prepare('PRAGMA table_info(companies)').all().map((c) => c.name);
+  for (const [c, def] of [['plan_id', 'INTEGER'], ['plan_name', "TEXT DEFAULT ''"], ['trial', 'INTEGER NOT NULL DEFAULT 0'], ['self_signup', 'INTEGER NOT NULL DEFAULT 0']]) {
+    if (!cols.includes(c)) master.exec(`ALTER TABLE companies ADD COLUMN ${c} ${def}`);
+  }
+}
 const mget = (k) => (master.prepare('SELECT value FROM master_settings WHERE key = ?').get(k) || {}).value;
 const mset = (k, v) => master.prepare('INSERT INTO master_settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, String(v));
-for (const [k, v] of Object.entries({ product_name: process.env.PRODUCT_NAME || 'بصمة', support_phone: process.env.SUPPORT_PHONE || '' })) {
+const MASTER_DEFAULTS = {
+  product_name: process.env.PRODUCT_NAME || 'بصمة', support_phone: process.env.SUPPORT_PHONE || '',
+  signup_enabled: '1',   // أي واحد يكدر يسجّل شركته من الصفحة الرئيسية
+  trial_days: '14',      // مدة التجربة المجانية
+  trial_employees: '1',  // عدد الموظفين بالتجربة
+};
+for (const [k, v] of Object.entries(MASTER_DEFAULTS)) {
   if (mget(k) === undefined) mset(k, v);
 }
 // باسورد صاحب البرنامج: من SUPER_PASSWORD أول مرة، وبعدين يتغير من اللوحة
@@ -67,7 +88,7 @@ function tenantDbPath(slug) { return MEMORY ? ':memory:' : path.join(TENANTS_DIR
 function openTenant(slug) {
   let t = tenants.get(slug);
   if (!t) {
-    t = createTenant({ slug, dbPath: tenantDbPath(slug), company: () => companyStatus(getCompany(slug) || {}, t), vapidPublic: mget('vapid_public') });
+    t = createTenant({ slug, dbPath: tenantDbPath(slug), company: () => ({ ...companyStatus(getCompany(slug) || {}, t), support_phone: mget('support_phone') }), vapidPublic: mget('vapid_public') });
     tenants.set(slug, t);
   }
   return t;
@@ -108,6 +129,37 @@ app.get('/api/company/:slug', (req, res) => {
   if (!c) return res.status(404).json({ error: 'رمز الشركة غير موجود' });
   res.json({ slug: c.slug });
 });
+const publicPlans = () => master.prepare('SELECT id, name, max_employees, months, price FROM plans WHERE active = 1 ORDER BY sort, price').all();
+app.get('/api/plans', (req, res) => res.json({ plans: publicPlans(), trial_days: Number(mget('trial_days')), trial_employees: Number(mget('trial_employees')), signup_enabled: mget('signup_enabled') === '1' }));
+
+// تسجيل شركة جديدة من الصفحة الرئيسية: تفتح تجربة مجانية فوراً
+const signupLimiter = { ...loginLimiter, max: 5, windowMs: 24 * 3600 * 1000, hits: new Map() };
+function randomSlug() {
+  for (;;) { const s = 'c' + crypto.randomBytes(3).toString('hex'); if (!getCompany(s)) return s; }
+}
+app.post('/api/signup', (req, res) => {
+  if (mget('signup_enabled') !== '1') return res.status(403).json({ error: 'التسجيل متوقف حالياً. تواصل ويانا.' });
+  const key = 'signup:' + req.ip;
+  if (signupLimiter.blocked(key)) return res.status(429).json({ error: 'سجّلت أكثر من مرة اليوم. تواصل ويانا إذا تحتاج شركة ثانية.' });
+  const b = req.body || {};
+  const name = String(b.company_name || '').trim();
+  const phone = String(b.phone || '').replace(/[^0-9+]/g, '');
+  const password = String(b.password || '');
+  let slug = String(b.slug || '').trim().toLowerCase();
+  if (!name || name.length > 80) return res.status(400).json({ error: 'اكتب اسم الشركة' });
+  if (!/^\+?[0-9]{7,15}$/.test(phone)) return res.status(400).json({ error: 'اكتب رقم تلفون صحيح' });
+  if (password.length < 8) return res.status(400).json({ error: 'الباسورد لازم 8 أحرف على الأقل' });
+  if (slug) {
+    const err = validCompany({ slug, name }, true);
+    if (err) return res.status(400).json({ error: err });
+  } else slug = randomSlug();
+  const d = new Date(today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + Number(mget('trial_days') || 14));
+  const c = createCompany({ slug, name, expires_at: d.toISOString().slice(0, 10), max_employees: Number(mget('trial_employees') || 1),
+    contact_name: String(b.contact_name || '').trim().slice(0, 80), phone, notes: '', trial: 1, self_signup: 1 }, password);
+  signupLimiter.fail(key);
+  slog(slug, `تسجيل ذاتي: ${name} (${phone})`);
+  res.json({ ok: true, slug, expires_at: c.expires_at, token: openTenant(slug).supportSession(), url: `/${slug}/` });
+});
 for (const f of ['style.css', 'icon.svg']) app.get('/' + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
@@ -143,7 +195,7 @@ app.get('/super/api/companies', superAuth, (req, res) => {
   res.json({
     rows,
     totals: { companies: rows.length, active: live.length, employees: live.reduce((a, r) => a + (r.employees || 0), 0),
-      monthly_income: live.reduce((a, r) => a + Number(r.price || 0), 0), expiring_soon: live.filter((r) => r.days_left != null && r.days_left <= 7).length },
+      monthly_income: live.filter((r) => !r.trial).reduce((a, r) => a + Number(r.price || 0), 0), trials: live.filter((r) => r.trial).length, expiring_soon: live.filter((r) => r.days_left != null && r.days_left <= 7).length },
   });
 });
 function validCompany(b, isNew) {
@@ -169,23 +221,55 @@ const addMonths = (date, n) => {
 };
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
 
+function createCompany(c, password) {
+  master.prepare(`INSERT INTO companies(slug, name, expires_at, max_employees, price, contact_name, phone, notes, trial, self_signup) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(c.slug, c.name, c.expires_at, c.max_employees, c.price || 0, c.contact_name || '', c.phone || '', c.notes || '', c.trial ? 1 : 0, c.self_signup ? 1 : 0);
+  const t = openTenant(c.slug);
+  t.db.prepare("UPDATE settings SET value = ? WHERE key = 'company_name'").run(c.name);
+  t.setAdminPassword(password);
+  return c;
+}
 app.post('/super/api/companies', superAuth, (req, res) => {
   const b = req.body || {};
   const err = validCompany(b, true);
   if (err) return res.status(400).json({ error: err });
   const slug = String(b.slug).trim().toLowerCase();
   const name = String(b.name).trim();
-  // الافتراضي: تجربة مجانية 14 يوم
-  const trialEnd = () => { const d = new Date(today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 14); return d.toISOString().slice(0, 10); };
+  // الافتراضي: تجربة مجانية حسب الإعدادات
+  const trialEnd = () => { const d = new Date(today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + Number(mget('trial_days') || 14)); return d.toISOString().slice(0, 10); };
   const expires = b.expires_at === undefined ? trialEnd() : (b.expires_at || null);
-  master.prepare(`INSERT INTO companies(slug, name, expires_at, max_employees, price, contact_name, phone, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(slug, name, expires, Number(b.max_employees || 0), Number(b.price || 0), String(b.contact_name || '').trim(), String(b.phone || '').trim(), String(b.notes || '').trim());
-  const t = openTenant(slug);
-  t.db.prepare("UPDATE settings SET value = ? WHERE key = 'company_name'").run(name);
   const password = b.admin_password ? String(b.admin_password) : randomPassword(10);
-  t.setAdminPassword(password);
+  createCompany({ slug, name, expires_at: expires, max_employees: Number(b.max_employees || 0), price: Number(b.price || 0),
+    contact_name: String(b.contact_name || '').trim(), phone: String(b.phone || '').trim(), notes: String(b.notes || '').trim(), trial: b.expires_at === undefined && !Number(b.price || 0) ? 1 : 0 }, password);
   slog(slug, `إضافة شركة ${name}`);
   res.json({ ok: true, slug, admin_password: password, expires_at: expires });
+});
+// ----- الباقات -----
+function validPlan(b) {
+  if (!String(b.name || '').trim()) return 'اكتب اسم الباقة';
+  if (!(Number(b.max_employees) >= 0)) return 'عدد الموظفين غير صحيح';
+  if (!(Number(b.months) >= 1 && Number(b.months) <= 36)) return 'المدة من 1 إلى 36 شهر';
+  if (!(Number(b.price) >= 0)) return 'السعر غير صحيح';
+  return null;
+}
+app.get('/super/api/plans', superAuth, (req, res) => res.json(master.prepare(`SELECT p.*, (SELECT COUNT(*) FROM companies c WHERE c.plan_id = p.id) AS companies FROM plans p ORDER BY sort, price`).all()));
+app.post('/super/api/plans', superAuth, (req, res) => {
+  const b = req.body || {}; const err = validPlan(b); if (err) return res.status(400).json({ error: err });
+  const r = master.prepare('INSERT INTO plans(name, max_employees, months, price, active, sort) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(String(b.name).trim(), Number(b.max_employees), Number(b.months), Number(b.price), b.active === false || b.active === 0 ? 0 : 1, Number(b.sort || 0));
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+});
+app.put('/super/api/plans/:id', superAuth, (req, res) => {
+  const b = req.body || {}; const err = validPlan(b); if (err) return res.status(400).json({ error: err });
+  const r = master.prepare('UPDATE plans SET name = ?, max_employees = ?, months = ?, price = ?, active = ?, sort = ? WHERE id = ?')
+    .run(String(b.name).trim(), Number(b.max_employees), Number(b.months), Number(b.price), b.active === false || b.active === 0 ? 0 : 1, Number(b.sort || 0), Number(req.params.id));
+  if (!r.changes) return res.status(404).json({ error: 'الباقة غير موجودة' });
+  res.json({ ok: true });
+});
+app.delete('/super/api/plans/:id', superAuth, (req, res) => {
+  // الشركات اللي عليها الباقة تبقى على نفس حدودها، بس الباقة ما تطلع بعد
+  master.prepare('DELETE FROM plans WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
 });
 app.put('/super/api/companies/:slug', superAuth, (req, res) => {
   const c = getCompany(req.params.slug);
@@ -199,16 +283,27 @@ app.put('/super/api/companies/:slug', superAuth, (req, res) => {
   if (b.max_employees !== undefined) n.max_employees = Number(b.max_employees);
   if (b.price !== undefined) n.price = Number(b.price);
   if (b.active !== undefined) n.active = b.active ? 1 : 0;
+  if (b.plan_id) {
+    const p = master.prepare('SELECT * FROM plans WHERE id = ?').get(Number(b.plan_id));
+    if (!p) return res.status(400).json({ error: 'الباقة غير موجودة' });
+    // تفعيل باقة: حد الموظفين وسعرها، والمدة تنضاف لنهاية الاشتراك (أو من اليوم إذا كان تجربة أو منتهي)
+    const from = !c.trial && n.expires_at && n.expires_at >= today() ? n.expires_at : today();
+    n.expires_at = addMonths(from, p.months);
+    n.max_employees = p.max_employees; n.price = p.months ? Math.round(p.price / p.months) : p.price;
+    n.plan_id = p.id; n.plan_name = p.name; n.trial = 0; n.active = 1;
+  }
   if (b.extend_months) {
     const m = Number(b.extend_months);
     if (!(m >= 1 && m <= 36)) return res.status(400).json({ error: 'مدة التجديد غير صحيحة' });
     // التجديد يبدي من نهاية الاشتراك الحالي، أو من اليوم إذا كان منتهي
     const from = n.expires_at && n.expires_at >= today() ? n.expires_at : today();
     n.expires_at = addMonths(from, m);
+    n.trial = 0; // تجديد يدوي = اشتراك مدفوع
   }
-  master.prepare('UPDATE companies SET name = ?, contact_name = ?, phone = ?, notes = ?, expires_at = ?, max_employees = ?, price = ?, active = ? WHERE slug = ?')
-    .run(n.name, n.contact_name, n.phone, n.notes, n.expires_at, n.max_employees, n.price, n.active, c.slug);
+  master.prepare('UPDATE companies SET name = ?, contact_name = ?, phone = ?, notes = ?, expires_at = ?, max_employees = ?, price = ?, active = ?, plan_id = ?, plan_name = ?, trial = ? WHERE slug = ?')
+    .run(n.name, n.contact_name, n.phone, n.notes, n.expires_at, n.max_employees, n.price, n.active, n.plan_id ?? null, n.plan_name || '', n.trial ? 1 : 0, c.slug);
   const changes = [];
+  if (b.plan_id) changes.push(`تفعيل باقة ${n.plan_name}`);
   if (n.active !== c.active) changes.push(n.active ? 'تفعيل' : 'إيقاف');
   if (n.expires_at !== c.expires_at) changes.push(`الاشتراك لحد ${n.expires_at || 'بدون انتهاء'}`);
   if (n.max_employees !== c.max_employees) changes.push(`حد الموظفين ${n.max_employees || 'مفتوح'}`);
@@ -248,7 +343,8 @@ app.delete('/super/api/companies/:slug', superAuth, (req, res) => {
   res.json({ ok: true });
 });
 app.get('/super/api/log', superAuth, (req, res) => res.json(master.prepare('SELECT * FROM super_log ORDER BY id DESC LIMIT 200').all()));
-app.get('/super/api/settings', superAuth, (req, res) => res.json({ product_name: mget('product_name'), support_phone: mget('support_phone') }));
+app.get('/super/api/settings', superAuth, (req, res) => res.json({ product_name: mget('product_name'), support_phone: mget('support_phone'),
+  signup_enabled: mget('signup_enabled') === '1', trial_days: Number(mget('trial_days')), trial_employees: Number(mget('trial_employees')) }));
 app.put('/super/api/settings', superAuth, (req, res) => {
   const b = req.body || {};
   if (b.product_name !== undefined) {
@@ -256,6 +352,15 @@ app.put('/super/api/settings', superAuth, (req, res) => {
     mset('product_name', String(b.product_name).trim().slice(0, 60));
   }
   if (b.support_phone !== undefined) mset('support_phone', String(b.support_phone).trim().slice(0, 40));
+  if (b.signup_enabled !== undefined) mset('signup_enabled', b.signup_enabled ? '1' : '0');
+  if (b.trial_days !== undefined) {
+    if (!(Number(b.trial_days) >= 1 && Number(b.trial_days) <= 90)) return res.status(400).json({ error: 'أيام التجربة من 1 إلى 90' });
+    mset('trial_days', Number(b.trial_days));
+  }
+  if (b.trial_employees !== undefined) {
+    if (!(Number(b.trial_employees) >= 1 && Number(b.trial_employees) <= 100)) return res.status(400).json({ error: 'موظفين التجربة من 1 إلى 100' });
+    mset('trial_employees', Number(b.trial_employees));
+  }
   if (b.new_password !== undefined) {
     if (!checkPassword(String(b.old_password || ''), mget('super_hash'))) return res.status(400).json({ error: 'الباسورد الحالي غير صحيح' });
     if (String(b.new_password).length < 10) return res.status(400).json({ error: 'الباسورد الجديد لازم 10 أحرف على الأقل' });

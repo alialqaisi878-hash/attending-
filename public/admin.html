@@ -41,6 +41,8 @@
         <div class="stat"><div class="n" id="sNot" style="color:var(--red)">0</div><div class="l">ما بصم / غائب</div></div>
         <div class="stat"><div class="n" id="sLeave" style="color:var(--primary)">0</div><div class="l">إجازة</div></div>
       </div>
+      <div class="card hello" id="shareCard"><div><b>رابط البرنامج للموظفين</b><div class="muted">دزّه للموظفين، يفتحوه من التلفون ويضيفوه للشاشة الرئيسية، ويدخلون باليوزر اللي تسويه إلهم من تبويب الموظفين.</div>
+        <div dir="ltr" style="margin-top:6px;font-weight:700" id="shareLink"></div></div><button class="secondary" id="shareBtn">نسخ الرابط</button></div>
       <div class="card"><div class="muted" id="todayDate"></div><div class="table-wrap"><table id="todayTable"></table></div></div>
     </section>
 
@@ -533,10 +535,17 @@ async function start() {
   let w;
   try { w = await api('api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { msg('loginMsg', e.message, false); return; }
   const sub = w.subscription || {};
-  $('warnBar').classList.toggle('hidden', !(sub.days_left != null && sub.days_left <= 7));
-  if (sub.days_left != null) $('warnBar').textContent = sub.days_left <= 0 ? 'اشتراككم ينتهي اليوم. جدّدوه حتى ما يوقف البرنامج.' : `باقي ${sub.days_left} يوم على نهاية اشتراككم (${sub.expires_at}). جدّدوه حتى ما يوقف البرنامج.`;
-  $('empLimit').textContent = sub.max_employees ? `الموظفين الفعّالين: ${sub.employees} من ${sub.max_employees} بباقتك` : '';
+  const plan = sub.trial ? 'تجربة مجانية' : (sub.plan_name ? 'باقة ' + sub.plan_name : 'باقتك');
+  const wa = (sub.support_phone || '').replace(/[^0-9]/g, '').replace(/^0/, '964');
+  const up = wa && role === 'admin' ? ` <a target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${encodeURIComponent('أريد ' + (sub.trial ? 'أفعّل' : 'أكبّر') + ' باقة البرنامج لشركة ' + (document.querySelector('.company-name')?.textContent || '') + ' (' + SLUG + ')')}">${sub.trial ? 'فعّل باقة' : 'كبّر الباقة'}</a>` : '';
+  $('empLimit').innerHTML = (sub.max_employees ? `${esc(plan)}: ${sub.employees} من ${sub.max_employees} موظف` : esc(plan)) + (sub.expires_at ? ` · لحد ${sub.expires_at}` : '') + up;
+  let warn = '';
+  if (sub.days_left != null && sub.days_left <= 7) warn = sub.days_left <= 0 ? 'اشتراككم ينتهي اليوم. جدّدوه حتى ما يوقف البرنامج.' : `باقي ${sub.days_left} يوم على نهاية ${sub.trial ? 'التجربة المجانية' : 'اشتراككم'} (${sub.expires_at}). جدّدوه حتى ما يوقف البرنامج.`;
+  else if (sub.trial) warn = `أنتم على التجربة المجانية (${sub.max_employees} موظف) لحد ${sub.expires_at}.`;
+  $('warnBar').classList.toggle('hidden', !warn); if (warn) $('warnBar').innerHTML = esc(warn) + up;
   $('adminPwCard').classList.toggle('hidden', role !== 'admin');
+  $('shareLink').textContent = location.origin + '/' + SLUG + '/';
+  $('shareBtn').onclick = async () => { try { await navigator.clipboard.writeText($('shareLink').textContent); $('shareBtn').textContent = 'تم النسخ ✅'; } catch (e) { prompt('انسخ الرابط:', $('shareLink').textContent); } };
   const acc = role === 'accountant';
   $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';
   ['leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
