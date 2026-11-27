@@ -15,6 +15,13 @@ if (fs.existsSync(manifest)) {
   console.log('android permissions ok');
 }
 
+// قارئ الـ QR يحتاج أندرويد 8 (API 26) أو أحدث
+const vars = path.join(root, 'android/variables.gradle');
+if (fs.existsSync(vars)) {
+  fs.writeFileSync(vars, fs.readFileSync(vars, 'utf8').replace(/minSdkVersion = \d+/, 'minSdkVersion = 26'));
+  console.log('android minSdk 26');
+}
+
 const plist = path.join(root, 'ios/App/App/Info.plist');
 if (fs.existsSync(plist)) {
   let x = fs.readFileSync(plist, 'utf8');
