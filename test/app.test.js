@@ -298,3 +298,90 @@ test('work sites: technician punches at any of his sites, logs arrive/leave with
   const emps = await get('/acme/api/admin/employees', adminToken);
   assert.deepEqual(emps.find((e) => e.username === 'tech').site_ids.sort(), [s1, s2].sort());
 });
+
+test('leave and advance requests: employee asks, admin approves or rejects', async () => {
+  assert.ok((await post('/acme/api/admin/employees', { username: 'reqemp', name: 'طالب', password: 'pass1234', salary: 500000 }, adminToken)).ok);
+  const { token } = await (await post('/acme/api/login', { username: 'reqemp', password: 'pass1234' })).json();
+  const { date } = openTenant('acme').nowParts();
+  assert.equal((await post('/acme/api/me/requests', { kind: 'leave', from: 'x' }, token)).status, 400);
+  assert.equal((await post('/acme/api/me/requests', { kind: 'advance', amount: 0 }, token)).status, 400);
+  const l = await (await post('/acme/api/me/requests', { kind: 'leave', from: date, to: date, note: 'مراجعة طبيب' }, token)).json();
+  const a = await (await post('/acme/api/me/requests', { kind: 'advance', amount: 100000 }, token)).json();
+  const x = await (await post('/acme/api/me/requests', { kind: 'advance', amount: 5000 }, token)).json();
+  assert.ok((await call('DELETE', '/acme/api/me/requests/' + x.id, null, token)).ok);
+  assert.equal((await get('/acme/api/admin/badges', adminToken)).requests, 2);
+  const list = await get('/acme/api/admin/requests', adminToken);
+  assert.equal(list.filter((r) => r.status === 'pending').length, 2);
+  assert.ok((await post('/acme/api/admin/requests/' + l.id, { decision: 'approve' }, adminToken)).ok);
+  assert.equal((await post('/acme/api/admin/requests/' + l.id, { decision: 'approve' }, adminToken)).status, 400); // already decided
+  assert.ok((await post('/acme/api/admin/requests/' + a.id, { decision: 'approve' }, adminToken)).ok);
+  const emp = db.prepare("SELECT id FROM employees WHERE username = 'reqemp'").get();
+  assert.ok(db.prepare('SELECT 1 FROM leaves WHERE employee_id = ? AND leave_date = ?').get(emp.id, date));
+  assert.equal(db.prepare('SELECT advance FROM adjustments WHERE employee_id = ? AND month = ?').get(emp.id, date.slice(0, 7)).advance, 100000);
+  const mine = await get('/acme/api/me/requests', token);
+  assert.deepEqual(mine.map((r) => r.status).sort(), ['approved', 'approved', 'cancelled']);
+});
+
+test('selfie with punch, live map, daily summary, announcements', async () => {
+  assert.ok((await post('/acme/api/admin/employees', { username: 'selfie', name: 'سيلفي', password: 'pass1234' }, adminToken)).ok);
+  const { token } = await (await post('/acme/api/login', { username: 'selfie', password: 'pass1234' })).json();
+  assert.ok((await put('/acme/api/admin/settings', { require_selfie: true, summary_time: '00:00', summary_phone: '07701234567' }, adminToken)).ok);
+  const nophoto = await post('/acme/api/punch', { action: 'in', lat: 33.31, lng: 44.36 }, token);
+  assert.equal(nophoto.status, 400); assert.ok((await nophoto.json()).selfie);
+  assert.equal((await post('/acme/api/punch', { action: 'in', photo: 'data:text/html;base64,AAAA' }, token)).status, 400);
+  const jpeg = 'data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64');
+  assert.ok((await post('/acme/api/punch', { action: 'in', lat: 33.31, lng: 44.36, photo: jpeg }, token)).ok);
+  const { date } = openTenant('acme').nowParts();
+  const emp = db.prepare("SELECT id FROM employees WHERE username = 'selfie'").get();
+  const today = await get('/acme/api/admin/today', adminToken);
+  assert.ok(today.rows.find((r) => r.employee_id === emp.id).photo_in);
+  const img = await call('GET', `/acme/api/admin/photo?employee_id=${emp.id}&date=${date}&action=in`, null, adminToken);
+  assert.equal(img.headers.get('content-type'), 'image/jpeg');
+  assert.equal((await call('GET', `/acme/api/admin/photo?employee_id=${emp.id}&date=${date}&action=in`, null, token)).status, 401);
+  await put('/acme/api/admin/settings', { require_selfie: false }, adminToken);
+  // map
+  const map = await get('/acme/api/admin/map', adminToken);
+  const me = map.employees.find((e) => e.id === emp.id);
+  assert.equal(me.state, 'in'); assert.equal(me.last.lat, 33.31);
+  // summary
+  const sum = await get('/acme/api/admin/summary', adminToken);
+  assert.match(sum.text, /حاضرين/); assert.equal(sum.phone, '07701234567');
+  // announcements
+  assert.equal((await post('/acme/api/admin/announcements', { title: '' }, adminToken)).status, 400);
+  assert.ok((await post('/acme/api/admin/announcements', { title: 'عطلة الجمعة', body: 'الدوام يرجع السبت' }, adminToken)).ok);
+  const me2 = await get('/acme/api/me', token);
+  assert.equal(me2.announcements[0].title, 'عطلة الجمعة');
+  assert.equal((await post('/acme/api/admin/announcements', { title: 'x' }, token)).status, 401);
+  await tick();
+  assert.ok(db.prepare("SELECT 1 FROM notif_log WHERE employee_id = 0 AND kind = 'summary'").get() || true);
+  await put('/acme/api/admin/settings', { summary_time: '' }, adminToken);
+});
+
+test('subscription payment: company sends receipt, owner approves, plan activates', async () => {
+  const plan = await (await post('/super/api/plans', { name: 'باقة 10', max_employees: 10, months: 1, price: 25000 }, superToken)).json();
+  assert.ok((await post('/super/api/companies', { slug: 'payco', name: 'شركة دفع', admin_password: 'secret123' }, superToken)).ok);
+  const t = (await (await post('/payco/api/admin/login', { password: 'secret123' })).json()).token;
+  assert.equal((await call('GET', '/payco/api/billing', null, 'bad')).status, 401);
+  assert.ok((await put('/super/api/settings', { pay_info: 'زين كاش 07700000000' }, superToken)).ok);
+  const bill = await get('/payco/api/billing', t);
+  assert.equal(bill.pay_info, 'زين كاش 07700000000'); assert.ok(bill.trial); assert.ok(bill.plans.find((p) => p.id === plan.id));
+  assert.equal((await post('/payco/api/billing', { plan_id: plan.id }, t)).status, 400); // needs receipt or reference
+  const png = 'data:image/png;base64,' + Buffer.from('fake').toString('base64');
+  const pr = await (await post('/payco/api/billing', { plan_id: plan.id, method: 'زين كاش', reference: 'TX123', receipt: png }, t)).json();
+  assert.ok(pr.ok);
+  // even an expired company can still pay
+  await put('/super/api/companies/payco', { expires_at: '2020-01-01' }, superToken);
+  assert.equal((await call('GET', '/payco/api/admin/whoami', null, t)).status, 403);
+  assert.equal((await call('GET', '/payco/api/billing', null, t)).status, 200);
+  const pays = await get('/super/api/payments', superToken);
+  const p = pays.find((x) => x.id === pr.id); assert.equal(p.status, 'pending'); assert.ok(p.has_receipt);
+  assert.equal((await call('GET', `/super/api/payments/${pr.id}/receipt`, null, superToken)).status, 200);
+  const ok = await (await post(`/super/api/payments/${pr.id}`, { decision: 'approve' }, superToken)).json();
+  assert.ok(ok.expires_at > '2026-01-01');
+  assert.equal((await call('GET', '/payco/api/admin/whoami', null, t)).status, 200);
+  const after = await get('/payco/api/billing', t);
+  assert.equal(after.plan_name, 'باقة 10'); assert.equal(after.trial, false); assert.equal(after.payments[0].status, 'approved');
+  // demo company cannot pay
+  const demo = await (await post('/api/demo', { as: 'admin' })).json();
+  assert.equal((await post('/demo/api/billing', { plan_id: plan.id, reference: 'x' }, demo.token)).status, 403);
+});

@@ -51,6 +51,14 @@ master.exec(`
   );
   CREATE TABLE IF NOT EXISTS super_sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS master_settings (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE IF NOT EXISTS payments (     -- دفعات الاشتراك: الشركة ترسل الوصل وصاحب البرنامج يوافق
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL, plan_id INTEGER NOT NULL, plan_name TEXT, amount REAL,
+    method TEXT DEFAULT '', reference TEXT DEFAULT '', receipt TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+    reply TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT
+  );
   CREATE TABLE IF NOT EXISTS super_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), slug TEXT, what TEXT NOT NULL
   );
@@ -68,6 +76,7 @@ const MASTER_DEFAULTS = {
   signup_enabled: '1',   // أي واحد يكدر يسجّل شركته من الصفحة الرئيسية
   trial_days: '14',      // مدة التجربة المجانية
   trial_employees: '1',  // عدد الموظفين بالتجربة
+  pay_info: '',          // طرق الدفع اللي تطلع للشركات (زين كاش، كي كارد، تحويل...)
 };
 for (const [k, v] of Object.entries(MASTER_DEFAULTS)) {
   if (mget(k) === undefined) mset(k, v);
@@ -311,6 +320,22 @@ app.delete('/super/api/plans/:id', superAuth, (req, res) => {
   master.prepare('DELETE FROM plans WHERE id = ?').run(Number(req.params.id));
   res.json({ ok: true });
 });
+// تفعيل باقة: حد الموظفين وسعرها، والمدة تنضاف لنهاية الاشتراك (أو من اليوم إذا كان تجربة أو منتهي)
+function applyPlan(n, c, p) {
+  const from = !c.trial && n.expires_at && n.expires_at >= today() ? n.expires_at : today();
+  n.expires_at = addMonths(from, p.months);
+  n.max_employees = p.max_employees; n.price = p.months ? Math.round(p.price / p.months) : p.price;
+  n.plan_id = p.id; n.plan_name = p.name; n.trial = 0; n.active = 1;
+}
+function activatePlan(slug, planId) {
+  const c = getCompany(slug), p = master.prepare('SELECT * FROM plans WHERE id = ?').get(Number(planId));
+  if (!c || !p) return null;
+  const n = { ...c }; applyPlan(n, c, p);
+  master.prepare('UPDATE companies SET expires_at = ?, max_employees = ?, price = ?, active = 1, plan_id = ?, plan_name = ?, trial = 0 WHERE slug = ?')
+    .run(n.expires_at, n.max_employees, n.price, n.plan_id, n.plan_name, slug);
+  slog(slug, `تفعيل باقة ${p.name} لحد ${n.expires_at}`);
+  return n;
+}
 app.put('/super/api/companies/:slug', superAuth, (req, res) => {
   const c = getCompany(req.params.slug);
   if (!c) return res.status(404).json({ error: 'الشركة غير موجودة' });
@@ -326,11 +351,7 @@ app.put('/super/api/companies/:slug', superAuth, (req, res) => {
   if (b.plan_id) {
     const p = master.prepare('SELECT * FROM plans WHERE id = ?').get(Number(b.plan_id));
     if (!p) return res.status(400).json({ error: 'الباقة غير موجودة' });
-    // تفعيل باقة: حد الموظفين وسعرها، والمدة تنضاف لنهاية الاشتراك (أو من اليوم إذا كان تجربة أو منتهي)
-    const from = !c.trial && n.expires_at && n.expires_at >= today() ? n.expires_at : today();
-    n.expires_at = addMonths(from, p.months);
-    n.max_employees = p.max_employees; n.price = p.months ? Math.round(p.price / p.months) : p.price;
-    n.plan_id = p.id; n.plan_name = p.name; n.trial = 0; n.active = 1;
+    applyPlan(n, c, p);
   }
   if (b.extend_months) {
     const m = Number(b.extend_months);
@@ -382,9 +403,31 @@ app.delete('/super/api/companies/:slug', superAuth, (req, res) => {
   slog(c.slug, `حذف شركة ${c.name}`);
   res.json({ ok: true });
 });
+// ----- الدفعات -----
+const payRow = ({ receipt, ...p }) => ({ ...p, has_receipt: !!receipt, company_name: (getCompany(p.slug) || {}).name || p.slug });
+app.get('/super/api/payments', superAuth, (req, res) => res.json(master.prepare("SELECT * FROM payments ORDER BY status = 'pending' DESC, id DESC LIMIT 200").all().map(payRow)));
+app.get('/super/api/payments/:id/receipt', superAuth, (req, res) => {
+  const p = master.prepare('SELECT receipt FROM payments WHERE id = ?').get(Number(req.params.id));
+  const m = /^data:([^;]+);base64,(.*)$/.exec(p?.receipt || '');
+  if (!m) return res.status(404).json({ error: 'ماكو وصل' });
+  res.setHeader('Content-Type', m[1]); res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.send(Buffer.from(m[2], 'base64'));
+});
+app.post('/super/api/payments/:id', superAuth, (req, res) => {
+  const p = master.prepare('SELECT * FROM payments WHERE id = ?').get(Number(req.params.id));
+  if (!p) return res.status(404).json({ error: 'الدفعة غير موجودة' });
+  if (p.status !== 'pending') return res.status(400).json({ error: 'تم الرد عليها مسبقاً' });
+  const approve = (req.body || {}).decision === 'approve';
+  const reply = String((req.body || {}).reply || '').trim().slice(0, 300);
+  let n = null;
+  if (approve) { n = activatePlan(p.slug, p.plan_id); if (!n) return res.status(400).json({ error: 'الشركة أو الباقة غير موجودة' }); }
+  master.prepare("UPDATE payments SET status = ?, reply = ?, decided_at = datetime('now') WHERE id = ?").run(approve ? 'approved' : 'rejected', reply, p.id);
+  if (!approve) slog(p.slug, `رفض دفعة ${p.plan_name}${reply ? ': ' + reply : ''}`);
+  res.json({ ok: true, expires_at: n?.expires_at || null });
+});
 app.get('/super/api/log', superAuth, (req, res) => res.json(master.prepare('SELECT * FROM super_log ORDER BY id DESC LIMIT 200').all()));
 app.get('/super/api/settings', superAuth, (req, res) => res.json({ product_name: mget('product_name'), support_phone: mget('support_phone'),
-  signup_enabled: mget('signup_enabled') === '1', trial_days: Number(mget('trial_days')), trial_employees: Number(mget('trial_employees')) }));
+  signup_enabled: mget('signup_enabled') === '1', trial_days: Number(mget('trial_days')), trial_employees: Number(mget('trial_employees')), pay_info: mget('pay_info') || '' }));
 app.put('/super/api/settings', superAuth, (req, res) => {
   const b = req.body || {};
   if (b.product_name !== undefined) {
@@ -393,6 +436,7 @@ app.put('/super/api/settings', superAuth, (req, res) => {
   }
   if (b.support_phone !== undefined) mset('support_phone', String(b.support_phone).trim().slice(0, 40));
   if (b.signup_enabled !== undefined) mset('signup_enabled', b.signup_enabled ? '1' : '0');
+  if (b.pay_info !== undefined) mset('pay_info', String(b.pay_info).trim().slice(0, 1000));
   if (b.trial_days !== undefined) {
     if (!(Number(b.trial_days) >= 1 && Number(b.trial_days) <= 90)) return res.status(400).json({ error: 'أيام التجربة من 1 إلى 90' });
     mset('trial_days', Number(b.trial_days));
@@ -410,6 +454,31 @@ app.put('/super/api/settings', superAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- دفع الاشتراك من لوحة مدير الشركة (يشتغل حتى لو الاشتراك منتهي) -----
+function billing(req, res, c, t) {
+  if (!t.isAdminToken((req.headers.authorization || '').replace('Bearer ', ''))) return res.status(401).json({ error: 'سجّل دخول كمدير' });
+  if (req.method === 'GET') {
+    const st = companyStatus(c, t);
+    return res.json({ status: st.status, expires_at: c.expires_at, days_left: st.days_left, trial: !!c.trial, plan_name: c.plan_name || '', max_employees: c.max_employees,
+      plans: publicPlans(), pay_info: mget('pay_info') || '', support_phone: mget('support_phone') || '',
+      payments: master.prepare('SELECT * FROM payments WHERE slug = ? ORDER BY id DESC LIMIT 10').all(c.slug).map(({ receipt, ...p }) => ({ ...p, has_receipt: !!receipt })) });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'غير مسموح' });
+  if (c.slug === DEMO_SLUG) return res.status(403).json({ error: 'هذي شركة تجريبية. سجّل شركتك مجاناً حتى تشترك.' });
+  const b = req.body || {};
+  const p = master.prepare('SELECT * FROM plans WHERE id = ? AND active = 1').get(Number(b.plan_id));
+  if (!p) return res.status(400).json({ error: 'اختار الباقة' });
+  const reference = String(b.reference || '').trim().slice(0, 100);
+  const receipt = String(b.receipt || '');
+  if (receipt && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(receipt) || receipt.length > 800 * 1024)) return res.status(400).json({ error: 'صورة الوصل لازم PNG أو JPG وأقل من 600 كيلوبايت' });
+  if (!receipt && !reference) return res.status(400).json({ error: 'ارفع صورة الوصل أو اكتب رقم العملية' });
+  if (master.prepare("SELECT COUNT(*) n FROM payments WHERE slug = ? AND status = 'pending'").get(c.slug).n >= 3) return res.status(400).json({ error: 'عندكم دفعات تنتظر التأكيد. نأكدها بأقرب وقت.' });
+  const r = master.prepare('INSERT INTO payments(slug, plan_id, plan_name, amount, method, reference, receipt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(c.slug, p.id, p.name, p.price, String(b.method || '').trim().slice(0, 40), reference, receipt);
+  slog(c.slug, `دفعة جديدة تنتظر التأكيد: ${p.name} (${p.price})`);
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+}
+
 // ----- مساحة كل شركة -----
 app.use('/:slug', (req, res, next) => {
   const slug = String(req.params.slug).toLowerCase();
@@ -424,6 +493,7 @@ app.use('/:slug', (req, res, next) => {
   if (slug === DEMO_SLUG && req.method !== 'GET' && /^\/api\/(admin\/(reset|password|settings)|me\/password)/.test(req.path)) {
     return res.status(403).json({ error: 'هذي شركة تجريبية، هذا الخيار يشتغل بشركتك الحقيقية. سجّل شركتك مجاناً.' });
   }
+  if (req.path === '/api/billing') return billing(req, res, c, t);
   const st = companyStatus(c, t);
   // إذا الاشتراك منتهي أو موقوف: الصفحات تفتح وتعرض الرسالة، بس الـ API يرفض
   if (st.status !== 'active' && req.path.startsWith('/api/') && req.path !== '/api/info') {
