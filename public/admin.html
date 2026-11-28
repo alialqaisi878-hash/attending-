@@ -5,6 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>لوحة المدير - الحضور والانصراف</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  .tabs .cnt { display: inline-block; min-width: 20px; padding: 0 6px; margin-inline-start: 4px; border-radius: 99px; background: var(--red); color: #fff; font-size: 12px; line-height: 20px; }
+  .tabs .cnt:empty { display: none; }
+  .sumtext { white-space: pre-wrap; background: #f6f8fc; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.8; margin: 8px 0; }
+  .req-card { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid #eef1f6; flex-wrap: wrap; }
+  .req-card:last-child { border-bottom: 0; }
+  .req-card .ic { font-size: 26px; } .req-card .grow { flex: 1; min-width: 200px; }
+  .req-card .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .req-card .acts input { width: 200px; }
+  .st { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; }
+  .st.pending { background: #fff4dc; color: #b45309; } .st.approved { background: #e3f8ee; color: #0f7a4d; } .st.rejected, .st.cancelled { background: #fde8e8; color: #b42318; }
+  #map { height: 460px; border-radius: 12px; z-index: 0; }
+  .mlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
+  .mlist button { text-align: right; background: #f6f8fc; color: var(--text); border-radius: 10px; padding: 10px 12px; font-weight: 500; }
+  .mdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-inline-end: 6px; }
+  .pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: grid; place-items: center; color: #fff; font-weight: 700; box-shadow: 0 6px 14px -6px rgba(0,0,0,.5); border: 2px solid #fff; }
+  .pin span { transform: rotate(45deg); font-size: 13px; }
+  .plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .plan { border: 2px solid #e6eaf2; border-radius: 14px; padding: 14px; cursor: pointer; background: #fff; text-align: right; color: var(--text); font-weight: 500; }
+  .plan.on { border-color: var(--primary); background: #f2f7ff; }
+  .plan b { font-size: 17px; display: block; } .plan .pr { font-size: 20px; font-weight: 800; color: var(--primary); margin: 6px 0; }
+  .payinfo { white-space: pre-wrap; background: #fffbea; border: 1px dashed #e5c35c; border-radius: 10px; padding: 12px; font-size: 15px; }
+  .photo-btn { background: none; padding: 0 4px; font-size: 15px; cursor: pointer; }
+  #photoDlg img { width: 100%; border-radius: 12px; }
+</style>
 <link rel="icon" href="logo">
 <meta name="theme-color" content="#1f6feb">
 </head>
@@ -25,12 +51,16 @@
   <div id="app" class="hidden">
     <div class="tabs">
       <button data-tab="today" class="active">اليوم</button>
+      <button data-tab="requests" class="adminOnly">الطلبات<span class="cnt" id="reqCnt"></span></button>
       <button data-tab="employees">الموظفين</button>
+      <button data-tab="map">الخريطة</button>
       <button data-tab="sites">المواقع</button>
       <button data-tab="leaves">الإجازات</button>
       <button data-tab="payroll">الرواتب</button>
       <button data-tab="report">التقارير</button>
+      <button data-tab="news" class="adminOnly">التعاميم</button>
       <button data-tab="settings">الإعدادات</button>
+      <button data-tab="billing" class="adminOnly">الاشتراك</button>
     </div>
 
     <!-- اليوم -->
@@ -41,6 +71,12 @@
         <div class="stat"><div class="n" id="sLate" style="color:var(--amber)">0</div><div class="l">متأخر</div></div>
         <div class="stat"><div class="n" id="sNot" style="color:var(--red)">0</div><div class="l">ما بصم / غائب</div></div>
         <div class="stat"><div class="n" id="sLeave" style="color:var(--primary)">0</div><div class="l">إجازة</div></div>
+      </div>
+      <div class="card" id="sumCard">
+        <div class="hello" style="margin:0"><h3 style="margin:0">📋 ملخص اليوم</h3>
+          <span><button class="secondary small-btn" id="sumCopy">نسخ</button> <a class="btn small-btn" id="sumWa" target="_blank" rel="noopener" style="background:#25d366;color:#fff;padding:7px 14px;border-radius:8px;text-decoration:none">إرسال واتساب</a></span></div>
+        <div class="sumtext" id="sumText">...</div>
+        <div class="muted" id="sumNote"></div>
       </div>
       <div class="card hello" id="shareCard"><div><b>رابط البرنامج للموظفين</b><div class="muted">دزّه للموظفين أو خليهم يصوّرون الـ QR من التطبيق، ويدخلون باليوزر اللي تسويه إلهم من تبويب الموظفين. رمز شركتكم: <b dir="ltr" class="slugCode"></b></div>
         <div dir="ltr" style="margin-top:6px;font-weight:700" id="shareLink"></div><button class="secondary small-btn" style="margin-top:8px" id="shareBtn">نسخ الرابط</button><div class="muted" style="margin-top:10px">🖥️ لوحة المدير من الحاسبة: <b dir="ltr" id="adminLink"></b></div></div>
@@ -128,6 +164,61 @@
       <div class="card"><div class="muted" id="rSummary"></div><div class="table-wrap"><table id="reportTable"></table></div></div>
     </section>
 
+    <!-- طلبات الموظفين -->
+    <section id="tab-requests" class="hidden">
+      <div class="card">
+        <div class="hello" style="margin:0"><h3 style="margin:0">طلبات الإجازات والسلف</h3>
+          <select id="rqFilter" style="width:auto"><option value="pending">تنتظر ردك</option><option value="">الكل</option><option value="approved">الموافق عليها</option><option value="rejected">المرفوضة</option></select></div>
+        <p class="muted" style="margin:6px 0 0">الموظف يطلب من التطبيق. الموافقة على الإجازة تسجلها إجازة مدفوعة تلقائياً، والموافقة على السلفة تنضاف لسلف هذا الشهر بالرواتب. الموظف يوصله إشعار بالرد.</p>
+        <div id="rqList"></div>
+      </div>
+    </section>
+
+    <!-- الخريطة -->
+    <section id="tab-map" class="hidden">
+      <div class="card">
+        <div class="hello" style="margin:0"><h3 style="margin:0">🗺️ وين موظفينك اليوم</h3><button class="secondary small-btn" id="mapRefresh">تحديث</button></div>
+        <p class="muted" style="margin:6px 0 10px">كل موظف يطلع بآخر مكان بصم منه أو سجّل وصول/خروج من موقع اليوم. البرنامج ما يتتبع الموظف طول الوقت، يحفظ مكانه بس وقت البصمة. <span class="mdot" style="background:#16a36a"></span>بالدوام <span class="mdot" style="background:#6a7389"></span>طلع <span class="mdot" style="background:#3b7bf6"></span>بموقع عمل</p>
+        <div id="map"></div>
+        <div class="mlist" id="mapList"></div>
+      </div>
+    </section>
+
+    <!-- التعاميم -->
+    <section id="tab-news" class="hidden">
+      <div class="card narrow">
+        <h3 style="margin-top:0">📢 تعميم جديد للموظفين</h3>
+        <label>العنوان</label><input id="anTitle" maxlength="120" placeholder="مثلاً: عطلة يوم الخميس">
+        <label>التفاصيل (اختياري)</label><textarea id="anBody" rows="4" maxlength="2000" style="width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid #d9dee8"></textarea>
+        <button style="width:100%;margin-top:12px" id="anSend">إرسال لكل الموظفين</button>
+        <div class="msg" id="anMsg"></div>
+        <p class="muted">يطلع بالتطبيق عند كل موظف، ويوصل إشعار للي مفعّلين التنبيهات.</p>
+      </div>
+      <div class="card"><h3 style="margin-top:0">التعاميم السابقة</h3><div class="table-wrap"><table id="anTable"></table></div></div>
+    </section>
+
+    <!-- الاشتراك والدفع -->
+    <section id="tab-billing" class="hidden">
+      <div class="card narrow" id="billStatus"></div>
+      <div class="card">
+        <h3 style="margin-top:0">1. اختار الباقة</h3>
+        <div class="plans" id="billPlans"></div>
+        <h3>2. ادفع</h3>
+        <div class="payinfo" id="payInfo"></div>
+        <h3>3. ارفع الوصل</h3>
+        <div class="row">
+          <div><label>طريقة الدفع</label><select id="payMethod"><option>زين كاش</option><option>كي كارد / ماستر</option><option>آسيا حوالة</option><option>تحويل بنكي</option><option>نقداً</option></select></div>
+          <div><label>رقم العملية (اختياري)</label><input id="payRef" dir="ltr"></div>
+        </div>
+        <label>صورة الوصل أو سكرين شوت التحويل</label><input type="file" id="payReceipt" accept="image/*">
+        <img id="payPreview" class="hidden" style="max-height:160px;margin-top:8px;border-radius:8px" alt="">
+        <button style="width:100%;margin-top:14px" id="paySend">إرسال للتأكيد</button>
+        <div class="msg" id="payMsg"></div>
+        <p class="muted">نتأكد من الدفعة ونفعّل الباقة، وعادةً خلال ساعات. التمديد ينضاف لنهاية اشتراككم الحالي.</p>
+      </div>
+      <div class="card"><h3 style="margin-top:0">دفعاتكم</h3><div class="table-wrap"><table id="payTable2"></table></div></div>
+    </section>
+
     <!-- الإعدادات -->
     <section id="tab-settings" class="hidden">
       <div class="card narrow">
@@ -142,6 +233,14 @@
         <p class="muted" id="locView"></p>
         <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sDeviceLock" style="width:auto"> كل موظف يبصم من تلفونه بس (قفل الجهاز)</label>
         <p class="muted" style="margin-top:4px">الحساب ينربط بأول تلفون يدخل منه، وتلفون واحد ما يبصم لحسابين. إذا موظف غيّر تلفونه، فك الربط من صفحة الموظفين.</p>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="sSelfie" style="width:auto"> سيلفي ويا كل بصمة (يمنع واحد يبصم عن غيره)</label>
+        <p class="muted" style="margin-top:4px">الموظف يصوّر وجهه وقت البصمة، والصورة تطلع لك جنب وقت البصمة 📷. الصور تنمسح وحدها بعد 60 يوم.</p>
+        <h3>ملخص اليوم على واتساب</h3>
+        <p class="muted" style="margin-top:0">كل يوم بالوقت اللي تحدده يتجهز ملخص: منو حضر، منو متأخر، منو ما بصم، ومنو بالمواقع. تشوفه بتبويب «اليوم» وترسله بضغطة لواتساب. إذا عندك رابط Webhook (n8n) ينرسل له تلقائياً.</p>
+        <div class="row">
+          <div><label>وقت الملخص</label><input type="time" id="sSumTime"></div>
+          <div><label>رقم واتساب المدير</label><input id="sSumPhone" dir="ltr" inputmode="tel" placeholder="07xxxxxxxxx"></div>
+        </div>
         <h3>هوية الشركة</h3>
         <label>اسم الشركة (يطلع بالبرنامج وبفورمة الراتب)</label><input id="sCompany">
         <label>شعار الشركة (PNG أو JPG، يطلع بالبرنامج وأيقونة التلفون وفورمة الراتب)</label>
@@ -226,6 +325,8 @@
   </div>
 </main>
 
+<dialog id="photoDlg"><h3 style="margin-top:0" id="photoTitle"></h3><img id="photoImg" alt=""><div class="row" style="margin-top:12px"><button class="secondary" onclick="photoDlg.close()">إغلاق</button></div></dialog>
+
 <!-- نافذة الموقع -->
 <dialog id="siteDlg">
   <h3 style="margin-top:0" id="siteDlgTitle">موقع</h3>
@@ -289,7 +390,7 @@ $('loginBtn').onclick = async () => {
 };
 $('pass').onkeydown = (e) => { if (e.key === 'Enter') $('loginBtn').click(); };
 
-const loaders = { sites: loadSites, today: loadToday, employees: loadEmployees, leaves: loadLeaves, payroll: loadPayroll, settings: loadSettings, report: () => {} };
+const loaders = { requests: loadRequests, map: loadMap, news: loadNews, billing: loadBilling, sites: loadSites, today: loadToday, employees: loadEmployees, leaves: loadLeaves, payroll: loadPayroll, settings: loadSettings, report: () => {} };
 document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('hidden', s.id !== 'tab-' + b.dataset.tab));
@@ -300,7 +401,7 @@ const offTag = (off, at) => off ? ` <span class="badge b-offline" title="وصل�
 function attendanceRows(rows, withDate) {
   return `<tr>${withDate ? '<th>التاريخ</th>' : ''}<th>الاسم</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>التأخير</th><th>ساعات العمل</th><th>أوفر تايم</th></tr>` +
     rows.map((r) => `<tr>${withDate ? `<td>${r.work_date}</td>` : ''}<td>${esc(r.name)}</td><td>${esc(r.department)}</td>
-      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}${offTag(r.in_offline, r.in_synced_at)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}${offTag(r.out_offline, r.out_synced_at)}</td>
+      <td>${t5(r.check_in)}${mapLink(r.in_lat, r.in_lng)}${photoBtn(r, 'in')}${offTag(r.in_offline, r.in_synced_at)}</td><td>${t5(r.check_out)}${mapLink(r.out_lat, r.out_lng)}${photoBtn(r, 'out')}${offTag(r.out_offline, r.out_synced_at)}</td>
       <td>${badge(r.status)}</td><td>${r.late_minutes ? r.late_minutes + ' د' : '—'}</td><td>${hrs(r.worked_minutes)}</td>
       <td>${r.overtime_minutes ? hrs(r.overtime_minutes) : '—'}</td></tr>`).join('');
 }
@@ -312,6 +413,7 @@ async function loadToday() {
   $('sTotal').textContent = d.rows.length; $('sPresent').textContent = c('حاضر', 'دوام بالعطلة'); $('sLate').textContent = c('متأخر');
   $('sNot').textContent = c('غائب', 'لم يسجّل بعد'); $('sLeave').textContent = c('إجازة مدفوعة', 'إجازة بدون راتب');
   $('todayTable').innerHTML = d.rows.length ? attendanceRows(d.rows, false) : '<tr><td>ما كو موظفين بعد. ضيفهم من تبويب الموظفين.</td></tr>';
+  loadSummary().catch(() => {}); loadBadges();
 }
 
 // ----- الموظفين -----
@@ -550,7 +652,7 @@ async function loadSettings() {
   settings = await api('api/admin/settings');
   $('sLat').value = settings.location_lat; $('sLng').value = settings.location_lng; $('sRadius').value = settings.location_radius;
   $('sCompany').value = settings.company_name; $('sColor').value = settings.brand_color || '#1f6feb'; $('sCurrency').value = settings.currency || ''; $('sTz').value = settings.timezone || 'Asia/Baghdad'; $('sSupport').value = settings.support_note || '';
-  logoData = undefined; $('sLogo').value = ''; $('logoPreview').src = settings.has_logo ? 'logo?' + Date.now() : ''; $('logoPreview').classList.toggle('hidden', !settings.has_logo); $('sLogoDel').classList.toggle('hidden', !settings.has_logo); $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sWebhook').value = settings.webhook_url || ''; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1';
+  logoData = undefined; $('sLogo').value = ''; $('logoPreview').src = settings.has_logo ? 'logo?' + Date.now() : ''; $('logoPreview').classList.toggle('hidden', !settings.has_logo); $('sLogoDel').classList.toggle('hidden', !settings.has_logo); $('sAllowance').value = settings.late_allowance; $('sLateRate').value = settings.late_hour_rate; $('sOTRate').value = settings.overtime_hour_rate; $('sMonthDays').value = settings.month_days; $('sWebhook').value = settings.webhook_url || ''; $('sLeaveMonthly').value = settings.leave_monthly; $('sLeaveStart').value = settings.leave_start_month; $('sDeviceLock').checked = settings.device_lock === '1'; $('sSelfie').checked = settings.require_selfie === '1'; $('sSumTime').value = settings.summary_time || ''; $('sSumPhone').value = settings.summary_phone || '';
   api('api/admin/changes').then((list) => {
     const fmt = (at) => new Date(at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { timeZone: APP_TZ, dateStyle: 'short', timeStyle: 'short' });
     $('changesTable').innerHTML = list.length ? '<tr><th>الوقت</th><th>منو</th><th>الموظف</th><th>التغيير</th><th>كان</th><th>صار</th></tr>' + list.map((c) =>
@@ -606,7 +708,7 @@ $('sSave').onclick = async () => {
     await api('api/admin/settings', { method: 'PUT', body: JSON.stringify({
       location_lat: $('sLat').value.trim(), location_lng: $('sLng').value.trim(), location_radius: $('sRadius').value,
       company_name: $('sCompany').value, brand_color: $('sColor').value, currency: $('sCurrency').value, timezone: $('sTz').value, support_note: $('sSupport').value,
-      ...(logoData !== undefined ? { logo: logoData } : {}), late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, webhook_url: $('sWebhook').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
+      ...(logoData !== undefined ? { logo: logoData } : {}), late_allowance: $('sAllowance').value, late_hour_rate: $('sLateRate').value, overtime_hour_rate: $('sOTRate').value, month_days: $('sMonthDays').value, webhook_url: $('sWebhook').value, leave_monthly: $('sLeaveMonthly').value, leave_start_month: $('sLeaveStart').value, device_lock: $('sDeviceLock').checked, require_selfie: $('sSelfie').checked, summary_time: $('sSumTime').value, summary_phone: $('sSumPhone').value, accountant_user: $('sAccUser').value, accountant_password: $('sAccPass').value, accountant_adjust: $('sAccAdjust').checked, weekend_days,
       remind_before: $('sRB').value, remind_late: $('sRL').value, remind_out_after: $('sRO').value }) });
     msg('sMsg', 'تم الحفظ', true); loadSettings(); loadInfo();
   } catch (e) { msg('sMsg', e.message, false); }
@@ -638,10 +740,149 @@ window.delShift = async (id) => {
   try { await api('api/admin/shifts/' + id, { method: 'DELETE' }); loadShifts(); } catch (e) { msg('shMsg', e.message, false); }
 };
 
+// ----- صور السيلفي -----
+const photoBtn = (r, a) => (r['photo_' + a] ? ` <button class="photo-btn" title="صورة البصمة" onclick="showPhoto(${r.employee_id}, '${r.work_date}', '${a}', this)">📷</button>` : '');
+window.showPhoto = async (id, date, action, btn) => {
+  const name = btn?.closest('tr')?.children[0]?.textContent || '';
+  const r = await fetch(BASE + `api/admin/photo?employee_id=${id}&date=${date}&action=${action}`, { headers: { Authorization: 'Bearer ' + store.get('admin_token') } });
+  if (!r.ok) return alert('ماكو صورة');
+  $('photoImg').src = URL.createObjectURL(await r.blob());
+  $('photoTitle').textContent = `${name} · ${action === 'in' ? 'حضور' : 'انصراف'} ${date}`;
+  $('photoDlg').showModal();
+};
+
+// ----- ملخص اليوم -----
+async function loadSummary() {
+  const d = await api('api/admin/summary');
+  $('sumText').textContent = d.text;
+  const wa = (d.phone || '').replace(/[^0-9]/g, '').replace(/^0/, '964');
+  $('sumWa').href = `https://wa.me/${wa}?text=${encodeURIComponent(d.text)}`;
+  $('sumNote').textContent = d.time ? `يتجهز كل يوم الساعة ${d.time}${d.phone ? ' لرقم ' + d.phone : ''}.` : 'حدد وقت ورقم الواتساب من الإعدادات حتى يتجهز كل يوم.';
+}
+$('sumCopy').onclick = async () => { try { await navigator.clipboard.writeText($('sumText').textContent); $('sumCopy').textContent = 'تم النسخ ✅'; setTimeout(() => ($('sumCopy').textContent = 'نسخ'), 1500); } catch (e) { prompt('انسخ:', $('sumText').textContent); } };
+
+// ----- الطلبات -----
+async function loadBadges() {
+  if (role !== 'admin') return;
+  try { const b = await api('api/admin/badges'); $('reqCnt').textContent = b.requests || ''; } catch (e) {}
+}
+const RQ_ST = { pending: 'ينتظر ردك', approved: 'موافق', rejected: 'مرفوض', cancelled: 'ألغاه الموظف' };
+async function loadRequests() {
+  const rows = await api('api/admin/requests' + ($('rqFilter').value ? '?status=' + $('rqFilter').value : ''));
+  $('rqList').innerHTML = rows.length ? rows.map((r) => `<div class="req-card"><span class="ic">${r.kind === 'leave' ? '🌴' : '💵'}</span>
+    <div class="grow"><b>${esc(r.name)}</b> <span class="muted">${esc(r.department || '')}</span>
+      <div>${r.kind === 'leave' ? `إجازة <b>${r.days}</b> ${r.days === 1 ? 'يوم' : 'أيام'}: ${r.from_date}${r.to_date !== r.from_date ? ' لحد ' + r.to_date : ''}` : `سلفة <b>${money(r.amount)}</b>`}</div>
+      ${r.note ? `<div class="muted">«${esc(r.note)}»</div>` : ''}${r.reply ? `<div class="muted">ردّك: ${esc(r.reply)}</div>` : ''}
+      <div class="muted" style="font-size:12px">${new Date(r.created_at.replace(' ', 'T') + 'Z').toLocaleString('ar-IQ', { timeZone: APP_TZ, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</div></div>
+    <div class="acts">${r.status === 'pending' ? `<input id="rp${r.id}" placeholder="رد (اختياري)"><button onclick="decide(${r.id}, 'approve')">موافقة ✓</button><button class="secondary" style="color:var(--red)" onclick="decide(${r.id}, 'reject')">رفض</button>`
+      : `<span class="st ${r.status}">${RQ_ST[r.status]}</span>`}</div></div>`).join('') : '<p class="muted">ماكو طلبات هنا.</p>';
+  loadBadges();
+}
+$('rqFilter').onchange = () => loadRequests().catch((e) => alert(e.message));
+window.decide = async (id, decision) => {
+  try { await api('api/admin/requests/' + id, { method: 'POST', body: JSON.stringify({ decision, reply: $('rp' + id)?.value || '' }) }); loadRequests(); }
+  catch (e) { alert(e.message); }
+};
+
+// ----- الخريطة -----
+let leafletMap = null, mapLayer = null, leafletLoading = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  return leafletLoading ||= new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; s.onload = ok; s.onerror = () => no(new Error('ما انفتحت الخريطة، تأكد من النت')); document.head.appendChild(s); });
+}
+async function loadMap() {
+  const [d] = await Promise.all([api('api/admin/map'), loadLeaflet()]);
+  if (!leafletMap) {
+    leafletMap = L.map('map', { zoomControl: true }).setView([33.31, 44.37], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(leafletMap);
+  }
+  setTimeout(() => leafletMap.invalidateSize(), 50);
+  if (mapLayer) mapLayer.remove();
+  mapLayer = L.layerGroup().addTo(leafletMap);
+  const pts = [];
+  if (d.workplace) { L.circle([d.workplace.lat, d.workplace.lng], { radius: d.workplace.radius, color: '#1f6feb', weight: 1, fillOpacity: .08 }).bindTooltip('مكان العمل').addTo(mapLayer); pts.push([d.workplace.lat, d.workplace.lng]); }
+  for (const s of d.sites) { L.circle([s.lat, s.lng], { radius: s.radius, color: '#7c5cff', weight: 1, fillOpacity: .08 }).bindTooltip('📍 ' + s.name).addTo(mapLayer); pts.push([s.lat, s.lng]); }
+  const markers = {};
+  for (const e of d.employees) {
+    if (!e.last) continue;
+    const col = e.state === 'out' ? '#6a7389' : /^وصل/.test(e.last.what) ? '#3b7bf6' : '#16a36a';
+    const icon = L.divIcon({ className: '', html: `<div class="pin" style="background:${col}"><span>${esc((e.name || '?').trim()[0])}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] });
+    markers[e.id] = L.marker([e.last.lat, e.last.lng], { icon }).bindPopup(`<b>${esc(e.name)}</b><br>${esc(e.last.what)} الساعة ${t5(e.last.time)}<br><span style="color:#6a7389">${e.trail.map((p) => t5(p.time) + ' ' + esc(p.what)).join('<br>')}</span>`).addTo(mapLayer);
+    if (e.trail.length > 1) L.polyline(e.trail.map((p) => [p.lat, p.lng]), { color: col, weight: 2, opacity: .5, dashArray: '4 6' }).addTo(mapLayer);
+    pts.push([e.last.lat, e.last.lng]);
+  }
+  if (pts.length) leafletMap.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+  const stTxt = (e) => (!e.last ? (e.state === 'absent' ? 'ما بصم اليوم' : 'بصم بدون موقع') : `${e.last.what} · ${t5(e.last.time)}`);
+  $('mapList').innerHTML = d.employees.map((e) => `<button data-id="${e.id}" ${e.last ? '' : 'disabled'}><span class="mdot" style="background:${!e.last ? '#d0d5df' : e.state === 'out' ? '#6a7389' : /^وصل/.test(e.last.what) ? '#3b7bf6' : '#16a36a'}"></span><b>${esc(e.name)}</b><div class="muted" style="font-size:13px">${esc(stTxt(e))}</div></button>`).join('');
+  $('mapList').querySelectorAll('button[data-id]').forEach((b) => (b.onclick = () => { const m = markers[b.dataset.id]; if (m) { leafletMap.setView(m.getLatLng(), 16); m.openPopup(); window.scrollTo({ top: 0, behavior: 'smooth' }); } }));
+}
+$('mapRefresh').onclick = () => loadMap().catch((e) => alert(e.message));
+
+// ----- التعاميم -----
+async function loadNews() {
+  const rows = await api('api/admin/announcements');
+  $('anTable').innerHTML = rows.length ? '<tr><th>التاريخ</th><th>العنوان</th><th>التفاصيل</th><th></th></tr>' + rows.map((a) => `<tr><td>${esc(a.created_at.slice(0, 16))}</td><td><b>${esc(a.title)}</b></td><td style="white-space:pre-wrap">${esc(a.body)}</td>
+    <td><button class="secondary small-btn" onclick="delNews(${a.id})">حذف</button></td></tr>`).join('') : '<tr><td class="muted">ماكو تعاميم بعد.</td></tr>';
+}
+$('anSend').onclick = async () => {
+  $('anSend').disabled = true;
+  try { const d = await api('api/admin/announcements', { method: 'POST', body: JSON.stringify({ title: $('anTitle').value, body: $('anBody').value }) });
+    msg('anMsg', `انرسل ✅${d.notified ? ` ووصل إشعار لـ ${d.notified} موظف` : ''}`, true); $('anTitle').value = $('anBody').value = ''; loadNews(); }
+  catch (e) { msg('anMsg', e.message, false); }
+  $('anSend').disabled = false;
+};
+window.delNews = async (id) => { if (!confirm('حذف التعميم؟')) return; await api('api/admin/announcements/' + id, { method: 'DELETE' }); loadNews(); };
+
+// ----- الاشتراك والدفع -----
+let billPlan = null, receiptData = '';
+const PAY_ST = { pending: 'ننتظر التأكيد', approved: 'تم التفعيل ✓', rejected: 'مرفوضة' };
+async function loadBilling() {
+  const b = await api('api/billing');
+  const stTxt = b.status === 'expired' ? '<b style="color:var(--red)">الاشتراك منتهي</b>' : b.status === 'suspended' ? '<b style="color:var(--red)">الحساب موقوف</b>' : '<b style="color:var(--green)">فعّال</b>';
+  $('billStatus').innerHTML = `<h3 style="margin-top:0">اشتراككم</h3><div>${stTxt} · ${b.trial ? 'تجربة مجانية' : esc(b.plan_name || 'اشتراك')}${b.max_employees ? ` · لحد ${b.max_employees} موظف` : ''}</div>
+    ${b.expires_at ? `<div class="muted">ينتهي ${b.expires_at}${b.days_left != null && b.days_left >= 0 ? ` (باقي ${b.days_left} يوم)` : ''}</div>` : ''}`;
+  $('billPlans').innerHTML = b.plans.length ? b.plans.map((p) => `<button class="plan" data-id="${p.id}"><b>${esc(p.name)}</b><div class="pr">${Number(p.price).toLocaleString('en-US')} ${CUR}</div>
+    <div class="muted">${p.max_employees ? 'لحد ' + p.max_employees + ' موظف' : 'موظفين بلا حد'} · ${p.months === 1 ? 'شهر' : p.months === 12 ? 'سنة' : p.months + ' أشهر'}</div></button>`).join('') : '<p class="muted">ماكو باقات معروضة حالياً. تواصل ويانا.</p>';
+  document.querySelectorAll('.plan').forEach((el) => (el.onclick = () => { billPlan = Number(el.dataset.id); document.querySelectorAll('.plan').forEach((x) => x.classList.toggle('on', x === el)); }));
+  if (billPlan) document.querySelector(`.plan[data-id="${billPlan}"]`)?.classList.add('on');
+  $('payInfo').textContent = b.pay_info || `تواصل ويانا لطريقة الدفع${b.support_phone ? ': ' + b.support_phone : ''}.`;
+  $('payTable2').innerHTML = b.payments.length ? '<tr><th>التاريخ</th><th>الباقة</th><th>المبلغ</th><th>الطريقة</th><th>الحالة</th></tr>' + b.payments.map((p) => `<tr><td>${esc(p.created_at.slice(0, 10))}</td><td>${esc(p.plan_name)}</td><td>${money(p.amount)}</td><td>${esc(p.method)}${p.reference ? ' · ' + esc(p.reference) : ''}</td>
+    <td><span class="st ${p.status}">${PAY_ST[p.status] || p.status}</span>${p.reply ? ' ' + esc(p.reply) : ''}</td></tr>`).join('') : '<tr><td class="muted">ماكو دفعات بعد.</td></tr>';
+  return b;
+}
+$('payReceipt').onchange = () => {
+  const f = $('payReceipt').files[0]; receiptData = ''; if (!f) return;
+  const img = new Image();
+  img.onload = () => { // نصغّر الصورة حتى تصعد بسرعة
+    const k = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    receiptData = c.toDataURL('image/jpeg', 0.8); $('payPreview').src = receiptData; $('payPreview').classList.remove('hidden');
+  };
+  img.src = URL.createObjectURL(f);
+};
+$('paySend').onclick = async () => {
+  if (!billPlan) return msg('payMsg', 'اختار الباقة أول', false);
+  $('paySend').disabled = true;
+  try { await api('api/billing', { method: 'POST', body: JSON.stringify({ plan_id: billPlan, method: $('payMethod').value, reference: $('payRef').value, receipt: receiptData }) });
+    msg('payMsg', 'وصلنا الوصل ✅ نتأكد منه ونفعّل الباقة بأقرب وقت.', true); $('payRef').value = ''; $('payReceipt').value = ''; receiptData = ''; $('payPreview').classList.add('hidden'); loadBilling(); }
+  catch (e) { msg('payMsg', e.message, false); }
+  $('paySend').disabled = false;
+};
+// إذا الاشتراك منتهي: نفتح صفحة الدفع بس
+async function billingOnly() {
+  try { const b = await loadBilling(); if (b.status === 'active') return false; } catch (e) { return false; }
+  $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('hidden', x.dataset.tab !== 'billing'));
+  document.querySelectorAll('section').forEach((s) => s.classList.toggle('hidden', s.id !== 'tab-billing'));
+  document.querySelector('.tabs [data-tab=billing]').classList.add('active');
+  return true;
+}
+
 let role = 'admin', canAdjust = true;
 async function start() {
   let w;
-  try { w = await api('api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { msg('loginMsg', e.message, false); return; }
+  try { w = await api('api/admin/whoami'); role = w.role; canAdjust = w.can_adjust; } catch (e) { if (!(await billingOnly())) msg('loginMsg', e.message, false); return; }
   const sub = w.subscription || {};
   const plan = sub.trial ? 'تجربة مجانية' : (sub.plan_name ? 'باقة ' + sub.plan_name : 'باقتك');
   const wa = (sub.support_phone || '').replace(/[^0-9]/g, '').replace(/^0/, '964');
@@ -658,6 +899,7 @@ async function start() {
   const acc = role === 'accountant';
   $('panelTitle').textContent = acc ? 'لوحة المحاسب' : 'لوحة المدير';
   ['leaves', 'settings'].forEach((t) => document.querySelector(`.tabs [data-tab=${t}]`).classList.toggle('hidden', acc));
+  document.querySelectorAll('.adminOnly').forEach((e) => e.classList.toggle('hidden', acc));
   if (acc) document.querySelector('.tabs [data-tab=payroll]').click();
   $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ });

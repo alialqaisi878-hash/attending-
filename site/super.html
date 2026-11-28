@@ -33,6 +33,12 @@
       <div class="stat"><div class="n" id="tIncome" style="font-size:22px">0</div><div class="l">الدخل الشهري (الفعّالة)</div></div>
     </div>
 
+    <div class="card" id="payCard" style="border:2px solid var(--primary)">
+      <h3 style="margin-top:0">💳 دفعات تنتظر التأكيد <span id="payCnt" class="muted"></span></h3>
+      <p class="muted" style="margin-top:0">الشركة تختار باقة من لوحتها وترفع وصل الدفع. شوف الوصل، وإذا الفلوس وصلتك اضغط «تأكيد»: الباقة تتفعّل وحدها والمدة تنضاف لاشتراكها.</p>
+      <div class="table-wrap"><table id="payTable"></table></div>
+    </div>
+
     <div class="card">
       <div class="hello"><h3 style="margin:0">الشركات</h3><button id="addBtn">+ إضافة شركة</button></div>
       <div class="table-wrap" style="margin-top:10px"><table id="cTable"></table></div>
@@ -62,6 +68,8 @@
         <div><label>أيام التجربة المجانية</label><input type="number" min="1" max="90" id="pTrialDays"></div>
         <div><label>عدد الموظفين بالتجربة</label><input type="number" min="1" max="100" id="pTrialEmps"></div>
       </div>
+      <label>طرق الدفع (تطلع للشركات لما تشترك: رقم زين كاش، كي كارد، حساب بنكي...)</label>
+      <textarea id="pPay" rows="4" style="width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid #d9dee8" placeholder="زين كاش: 07xxxxxxxxx (باسم ...)&#10;كي كارد: xxxx xxxx xxxx xxxx"></textarea>
       <button style="margin-top:12px" id="pSave">حفظ</button>
       <h3>تغيير باسوردك</h3>
       <label>الباسورد الحالي</label><input type="password" id="pOld" dir="ltr">
@@ -216,7 +224,7 @@ window.del = async (slug) => {
 };
 $('pSave').onclick = async () => {
   try { await api('/super/api/settings', { method: 'PUT', body: JSON.stringify({ product_name: $('pName').value, support_phone: $('pPhone').value,
-    signup_enabled: $('pSignup').checked, trial_days: $('pTrialDays').value, trial_employees: $('pTrialEmps').value }) }); msg('pMsg', 'تم الحفظ', true); settings = await api('/super/api/settings'); }
+    signup_enabled: $('pSignup').checked, trial_days: $('pTrialDays').value, trial_employees: $('pTrialEmps').value, pay_info: $('pPay').value }) }); msg('pMsg', 'تم الحفظ', true); settings = await api('/super/api/settings'); }
   catch (e) { msg('pMsg', e.message, false); }
 };
 $('pPw').onclick = async () => {
@@ -262,11 +270,38 @@ $('pdSave').onclick = async () => {
     $('planDlg').close(); load(); alert('تم التفعيل. الاشتراك لحد ' + d.expires_at); }
   catch (e) { msg('pdMsg', e.message, false); }
 };
+// ----- الدفعات -----
+const PST = { pending: 'تنتظر', approved: 'مؤكدة ✓', rejected: 'مرفوضة' };
+async function loadPayments() {
+  const ps = await api('/super/api/payments');
+  const pending = ps.filter((p) => p.status === 'pending').length;
+  $('payCnt').textContent = pending ? `(${pending})` : '';
+  $('payCard').style.borderColor = pending ? 'var(--primary)' : 'transparent';
+  $('payTable').innerHTML = ps.length ? '<tr><th>التاريخ</th><th>الشركة</th><th>الباقة</th><th>المبلغ</th><th>الطريقة / رقم العملية</th><th>الوصل</th><th></th></tr>' + ps.slice(0, 30).map((p) => `<tr>
+    <td>${esc(p.created_at.slice(0, 16))}</td><td><b>${esc(p.company_name)}</b><div class="muted" dir="ltr">${esc(p.slug)}</div></td><td>${esc(p.plan_name)}</td><td>${money(p.amount)}</td>
+    <td>${esc(p.method)}${p.reference ? '<div dir="ltr">' + esc(p.reference) + '</div>' : ''}</td>
+    <td>${p.has_receipt ? `<button class="secondary small-btn" onclick="receipt(${p.id})">شوف الوصل</button>` : '—'}</td>
+    <td>${p.status === 'pending' ? `<button class="small-btn" onclick="payDecide(${p.id}, 'approve')">تأكيد وتفعيل</button> <button class="secondary small-btn" onclick="payDecide(${p.id}, 'reject')">رفض</button>` : PST[p.status] + (p.reply ? ' · ' + esc(p.reply) : '')}</td></tr>`).join('')
+    : '<tr><td class="muted">ماكو دفعات بعد.</td></tr>';
+}
+window.receipt = async (id) => {
+  const r = await fetch(`/super/api/payments/${id}/receipt`, { headers: { Authorization: 'Bearer ' + store.get('super_token') } });
+  if (!r.ok) return alert('ماكو وصل');
+  window.open(URL.createObjectURL(await r.blob()), '_blank');
+};
+window.payDecide = async (id, decision) => {
+  let reply = '';
+  if (decision === 'reject') { reply = prompt('سبب الرفض (يطلع للشركة):', 'ما وصلتنا الحوالة'); if (reply === null) return; }
+  else if (!confirm('متأكد الفلوس وصلتك؟ الباقة راح تتفعّل هسة.')) return;
+  try { const d = await api('/super/api/payments/' + id, { method: 'POST', body: JSON.stringify({ decision, reply }) });
+    if (d.expires_at) alert('تم التفعيل. الاشتراك لحد ' + d.expires_at); loadPayments(); load(); }
+  catch (e) { alert(e.message); }
+};
 async function start() {
   try { settings = await api('/super/api/settings'); } catch (e) { return; }
   $('pName').value = settings.product_name; $('pPhone').value = settings.support_phone;
-  $('pSignup').checked = settings.signup_enabled; $('pTrialDays').value = settings.trial_days; $('pTrialEmps').value = settings.trial_employees;
-  loadPlans().catch(() => {});
+  $('pSignup').checked = settings.signup_enabled; $('pTrialDays').value = settings.trial_days; $('pTrialEmps').value = settings.trial_employees; $('pPay').value = settings.pay_info || '';
+  loadPlans().catch(() => {}); loadPayments().catch(() => {});
   $('loginBox').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
   load().catch((e) => alert(e.message));
 }

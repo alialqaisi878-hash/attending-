@@ -63,8 +63,12 @@ test('companies are fully isolated from each other', async () => {
 
 test('expired or suspended companies are blocked, renewal brings them back', async () => {
   const r = await (await post('/super/api/companies', { slug: 'exp', name: 'منتهية', expires_at: '2020-01-31' }, sup)).json();
-  const res = await post('/exp/api/admin/login', { password: r.admin_password });
+  // the admin can still log in (to pay and renew), but everything else is blocked
+  const lt = (await (await post('/exp/api/admin/login', { password: r.admin_password })).json()).token;
+  assert.ok(lt);
+  const res = await call('GET', '/exp/api/admin/whoami', null, lt);
   assert.equal(res.status, 403); assert.match((await res.json()).error, /انتهى اشتراك/);
+  assert.equal((await post('/exp/api/login', { username: 'x', password: 'y' })).status, 403);
   assert.equal((await get('/exp/api/info')).subscription, 'expired'); // info still works so the page can show the message
   assert.equal((await call('GET', '/exp/')).status, 200);
   const ren = await (await put('/super/api/companies/exp', { extend_months: 1 }, sup)).json();

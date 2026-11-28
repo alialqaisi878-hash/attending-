@@ -231,3 +231,49 @@ input { font-family: inherit; }
 .v-list li:last-child::before { display: none; }
 .v-list .dot { flex: 0 0 auto; width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent); }
 .v-rep { margin-top: 4px; font-size: 14px; background: var(--surface-2); padding: 8px 10px; border-radius: 12px; white-space: pre-wrap; }
+
+/* تعميم من الإدارة */
+.ann { position: relative; overflow: hidden; background: linear-gradient(135deg, color-mix(in srgb, var(--violet) 16%, var(--surface)), var(--surface)); border: 1px solid color-mix(in srgb, var(--violet) 25%, transparent); }
+.ann .ann-top { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--violet); margin-bottom: 6px; }
+.ann .ann-top .x { margin-inline-start: auto; background: transparent; color: var(--muted); font-size: 18px; padding: 0 4px; }
+.ann b { font-size: 16px; display: block; }
+.ann p { margin: 6px 0 0; white-space: pre-wrap; font-size: 14px; color: var(--text); opacity: .9; }
+.ann-list .a { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ann-list .a:last-child { border-bottom: 0; }
+.ann-list .a .when { font-size: 12px; color: var(--muted); }
+.ann-list .a p { margin: 4px 0 0; white-space: pre-wrap; font-size: 14px; }
+.ann-list .a.new b::after { content: 'جديد'; font-size: 10px; margin-inline-start: 6px; padding: 2px 7px; border-radius: 99px; background: var(--violet); color: #fff; vertical-align: middle; }
+.tabbar button .dot { position: absolute; top: 6px; left: calc(50% - 16px); width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--surface); }
+
+/* طلباتي */
+.req-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.req-btns button { padding: 16px 10px; border-radius: 18px; background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 15px; border: 1px solid var(--line); }
+.req-btns button span { display: block; font-size: 26px; margin-bottom: 4px; }
+.req-btns button.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
+.req-form { margin-top: 12px; animation: viewIn .3s var(--ease); }
+.req-form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.req-form textarea, .req-form input { width: 100%; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.req-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.req-list li { display: flex; gap: 10px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.req-list li:last-child { border-bottom: 0; }
+.req-list .ic { font-size: 22px; line-height: 1; }
+.req-list .grow { flex: 1; min-width: 0; }
+.st { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+.st.pending { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+.st.approved { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.st.rejected, .st.cancelled { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+.req-list .reply { margin-top: 4px; font-size: 13px; background: var(--surface-2); padding: 6px 10px; border-radius: 10px; }
+.linkbtn { background: transparent; color: var(--red); font-size: 13px; padding: 4px 0; text-decoration: underline; }
+
+/* كاميرا السيلفي */
+.cam { position: fixed; inset: 0; z-index: 50; background: rgba(5, 8, 20, .86); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: #fff; animation: viewIn .25s var(--ease); padding: 20px; }
+.cam .frame { width: min(72vw, 300px); aspect-ratio: 1; border-radius: 50%; overflow: hidden; border: 4px solid rgba(255, 255, 255, .85); box-shadow: 0 0 0 10px rgba(255, 255, 255, .08), 0 20px 60px -10px rgba(0, 0, 0, .6); background: #000; position: relative; }
+.cam video, .cam img { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.cam .frame::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(94, 240, 184, .0); animation: camPulse 2s ease-in-out infinite; }
+@keyframes camPulse { 50% { box-shadow: inset 0 0 0 6px rgba(94, 240, 184, .55); } }
+.cam .t { font-size: 18px; font-weight: 700; } .cam .s { font-size: 14px; opacity: .8; margin-top: -10px; text-align: center; }
+.cam .shoot { width: 76px; height: 76px; border-radius: 50%; background: #fff; border: 6px solid rgba(255, 255, 255, .35); background-clip: padding-box; }
+.cam .shoot:active { transform: scale(.92); }
+.cam .cancel { background: transparent; color: #fff; opacity: .8; font-size: 15px; }
+.cam .flash { position: fixed; inset: 0; background: #fff; animation: flash .45s ease-out forwards; pointer-events: none; }
+@keyframes flash { from { opacity: .9; } to { opacity: 0; } }

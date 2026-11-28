@@ -496,7 +496,9 @@ app.use('/:slug', (req, res, next) => {
   if (req.path === '/api/billing') return billing(req, res, c, t);
   const st = companyStatus(c, t);
   // إذا الاشتراك منتهي أو موقوف: الصفحات تفتح وتعرض الرسالة، بس الـ API يرفض
-  if (st.status !== 'active' && req.path.startsWith('/api/') && req.path !== '/api/info') {
+  // الاشتراك المنتهي: المدير يكدر يدخل بس حتى يدفع ويجدد من تبويب الاشتراك
+  const payLogin = st.status === 'expired' && req.path === '/api/admin/login' && !String((req.body || {}).username || '').trim();
+  if (st.status !== 'active' && req.path.startsWith('/api/') && req.path !== '/api/info' && !payLogin) {
     return res.status(403).json({ error: statusMessage(st.status), subscription: st.status });
   }
   if (req.path === '/api/info') {

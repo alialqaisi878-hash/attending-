@@ -45,6 +45,7 @@
   <div id="home" class="hidden">
     <!-- الرئيسية -->
     <div data-view="home" class="view">
+      <div class="panel ann hidden" id="annCard"></div>
       <div class="panel punch">
         <div class="fp" id="fp" role="button" tabindex="0" aria-label="بصمة">
           <svg class="base" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
@@ -126,6 +127,19 @@
         <div class="avatar" id="avatar">؟</div>
         <div><b id="meName" style="font-size:18px"></b><div class="muted2" id="empInfo"></div><div class="muted2" dir="ltr" id="meUser" style="text-align:right"></div></div>
       </div>
+      <div class="panel" id="reqPanel">
+        <h3>طلباتي</h3>
+        <div class="req-btns"><button id="rqLeave"><span>🌴</span>طلب إجازة</button><button id="rqAdv"><span>💵</span>طلب سلفة</button></div>
+        <div class="req-form hidden" id="rqForm">
+          <div class="two" id="rqDates"><div class="field"><label for="rqFrom">من يوم</label><input type="date" id="rqFrom"></div><div class="field"><label for="rqTo">لحد يوم</label><input type="date" id="rqTo"></div></div>
+          <div class="field hidden" id="rqAmtF"><label for="rqAmt">المبلغ (<span class="cur"></span>)</label><input id="rqAmt" inputmode="numeric" dir="ltr" placeholder="100,000"></div>
+          <div class="field"><label for="rqNote">السبب أو ملاحظة (اختياري)</label><textarea id="rqNote" rows="2"></textarea></div>
+          <button class="btn" style="margin-top:12px" id="rqSend">إرسال للمدير</button>
+          <div class="msg" id="rqMsg"></div>
+        </div>
+        <ul class="req-list" id="rqList"></ul>
+      </div>
+      <div class="panel hidden" id="annPanel"><h3>📢 التعاميم</h3><div class="ann-list" id="annList"></div></div>
       <div class="panel list" id="pushCard">
         <div class="it"><div><b>تذكير البصمة</b><div class="muted2" id="pushNote">قبل الدوام، وإذا تأخرت، وبعد نهاية الدوام.</div></div><button class="switch" id="pushBtn" aria-label="التنبيهات"></button></div>
         <div class="msg" id="pushMsg"></div>
@@ -187,6 +201,7 @@ function showTab(t) {
   $('sky').classList.toggle('compact', t !== 'home');
   if (t === 'salary') animateSalary();
   if (t === 'home') checkLocation();
+  if (t === 'me') { loadRequests().then(markSeen).catch(() => {}); renderAnn(true); }
   window.scrollTo({ top: 0, behavior: 'smooth' });
   haptic(8);
 }
@@ -238,7 +253,7 @@ async function syncQueue() {
       const p = q[0]; let r;
       try {
         r = p.kind === 'visit' ? await sendVisit(p, true) : await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
-          body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true }) });
+          body: JSON.stringify({ action: p.action, lat: p.lat, lng: p.lng, offline_at: p.at, queued: true, photo: p.photo }) });
       } catch (e) { break; }
       if (r.status === 401 || r.status >= 500) break;
       const d = await r.json().catch(() => ({}));
@@ -311,12 +326,18 @@ function celebrate() {
 
 async function punch(action) {
   if (!action) return;
-  $('fp').setAttribute('disabled', ''); $('todayLine').textContent = '📍 جاري تحديد موقعك...';
+  $('fp').setAttribute('disabled', '');
   const at = Date.now();
+  let photo;
+  if (me?.require_selfie) {
+    photo = await takeSelfie();
+    if (!photo) { $('fp').removeAttribute('disabled'); paintPunch(); toast('البصمة تحتاج سيلفي. حاول مرة ثانية.', false); return; }
+  }
+  $('todayLine').textContent = '📍 جاري تحديد موقعك...';
   const loc = await getLocation();
   const done = (ok, text) => { $('fp').removeAttribute('disabled'); toast(text, ok); if (ok) { celebrate(); setTimeout(paintPunch, 1600); } else paintPunch(); };
   const queueIt = () => {
-    saveQueue([...queue(), { id: at + '-' + Math.random().toString(36).slice(2), action, at, lat: loc.lat, lng: loc.lng }]);
+    saveQueue([...queue(), { id: at + '-' + Math.random().toString(36).slice(2), action, at, lat: loc.lat, lng: loc.lng, photo }]);
     showOfflineBar();
     done(true, `📵 ماكو نت. انحفظت بصمة ${action === 'in' ? 'الحضور' : 'الانصراف'} بالتلفون الساعة ${new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ })}، وراح تصعد وحدها من يرجع النت.`);
   };
@@ -324,14 +345,117 @@ async function punch(action) {
   let r;
   try {
     r = await fetch(BASE + 'api/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('emp_token'), 'X-Device-Id': deviceId() },
-      body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng, offline_at: at }) });
+      body: JSON.stringify({ action, lat: loc.lat, lng: loc.lng, offline_at: at, photo }) });
   } catch (e) { return queueIt(); }
   if (r.status === 401) { showLogin(); return; }
   const d = await r.json().catch(() => ({}));
+  if (d.selfie && me) me.require_selfie = true; // المدير فعّل السيلفي هسة
   if (r.ok && me) { me.today = { ...me.today, [action === 'in' ? 'check_in' : 'check_out']: new Date().toLocaleTimeString('en-GB', { timeZone: APP_TZ, hour12: false }) }; }
   done(r.ok, r.ok ? d.message : (d.error || 'خطأ'));
   if (r.ok) setTimeout(() => loadHome().catch(() => {}), 1700);
 }
+
+// ----- سيلفي ويا البصمة -----
+function takeSelfie() {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div'); ov.className = 'cam';
+    ov.innerHTML = `<div class="t">سيلفي ويا البصمة 📸</div><div class="s">خلّي وجهك داخل الدائرة واضغط الزر</div>
+      <div class="frame"><video autoplay playsinline muted></video></div><button class="shoot" aria-label="صوّر"></button><button class="cancel">إلغاء</button>`;
+    document.body.appendChild(ov);
+    const video = ov.querySelector('video'); let stream = null;
+    const finish = (v) => { stream?.getTracks().forEach((t) => t.stop()); ov.remove(); resolve(v); };
+    ov.querySelector('.cancel').onclick = () => finish(null);
+    // صورة مربعة صغيرة (360px) حتى تصعد بسرعة حتى على نت ضعيف
+    const shot = (src, w, h) => { const c = document.createElement('canvas'), S = 360, k = Math.min(w, h); c.width = c.height = S;
+      c.getContext('2d').drawImage(src, (w - k) / 2, (h - k) / 2, k, k, 0, 0, S, S); return c.toDataURL('image/jpeg', 0.72); };
+    const fallback = () => { // إذا الكاميرا المباشرة ما اشتغلت: كاميرا التلفون العادية
+      ov.querySelector('.s').textContent = 'اضغط الزر وصوّر وجهك';
+      ov.querySelector('.frame').innerHTML = '<div style="display:grid;place-items:center;height:100%;font-size:64px">🤳</div>';
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'user');
+      inp.onchange = () => { const f = inp.files[0]; if (!f) return; const img = new Image(); img.onload = () => finish(shot(img, img.naturalWidth, img.naturalHeight)); img.src = URL.createObjectURL(f); };
+      ov.querySelector('.shoot').onclick = () => inp.click();
+    };
+    if (!navigator.mediaDevices?.getUserMedia) return fallback();
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 } }, audio: false }).then((s) => {
+      stream = s; video.srcObject = s;
+      ov.querySelector('.shoot').onclick = () => {
+        if (!video.videoWidth) return;
+        const f = document.createElement('div'); f.className = 'flash'; ov.appendChild(f); haptic(30);
+        const d = shot(video, video.videoWidth, video.videoHeight); setTimeout(() => finish(d), 220);
+      };
+    }).catch(fallback);
+  });
+}
+
+// ----- التعاميم -----
+const annSeen = () => Number(store.get('ann_seen') || 0);
+const fmtWhen = (s) => new Date(String(s).replace(' ', 'T') + 'Z').toLocaleString('ar-IQ', { timeZone: APP_TZ, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+function renderAnn(markRead) {
+  const list = me?.announcements || [], seen = annSeen();
+  const top = list.find((a) => a.id > seen);
+  $('annCard').classList.toggle('hidden', !top);
+  if (top) {
+    $('annCard').innerHTML = `<div class="ann-top">📢 تعميم من الإدارة <span class="muted2" style="font-weight:500">${fmtWhen(top.created_at)}</span><button class="x" id="annX" aria-label="قريته">×</button></div>
+      <b>${esc(top.title)}</b>${top.body ? `<p>${esc(top.body)}</p>` : ''}`;
+    $('annX').onclick = () => { store.set('ann_seen', String(top.id)); renderAnn(); haptic(6); };
+  }
+  $('annPanel').classList.toggle('hidden', !list.length);
+  $('annList').innerHTML = list.map((a) => `<div class="a ${a.id > seen ? 'new' : ''}"><b>${esc(a.title)}</b><div class="when">${fmtWhen(a.created_at)}</div>${a.body ? `<p>${esc(a.body)}</p>` : ''}</div>`).join('');
+  if (markRead && list.length) store.set('ann_seen', String(Math.max(seen, list[0].id)));
+  updateDot();
+}
+
+// ----- طلباتي: إجازة أو سلفة -----
+let reqKind = null, myReqs = [];
+const REQ_ST = { pending: 'ينتظر الرد', approved: 'موافق ✓', rejected: 'مرفوض', cancelled: 'ملغي' };
+async function loadRequests() {
+  myReqs = await api('api/me/requests');
+  $('rqList').innerHTML = myReqs.map((r) => `<li><span class="ic">${r.kind === 'leave' ? '🌴' : '💵'}</span><div class="grow">
+      <b>${r.kind === 'leave' ? `إجازة ${r.days} ${r.days === 1 ? 'يوم' : 'أيام'}` : 'سلفة ' + money(r.amount)}</b>
+      <div class="muted2">${r.kind === 'leave' ? `<span class="num">${r.from_date}</span>${r.to_date !== r.from_date ? ` لحد <span class="num">${r.to_date}</span>` : ''}` : fmtWhen(r.created_at)}${r.note ? ' · ' + esc(r.note) : ''}</div>
+      ${r.reply ? `<div class="reply">💬 ${esc(r.reply)}</div>` : ''}
+      ${r.status === 'pending' ? `<button class="linkbtn" data-cancel="${r.id}">إلغاء الطلب</button>` : ''}</div>
+      <span class="st ${r.status}">${REQ_ST[r.status] || r.status}</span></li>`).join('');
+  $('rqList').querySelectorAll('[data-cancel]').forEach((b) => (b.onclick = async () => {
+    try { await api('api/me/requests/' + b.dataset.cancel, { method: 'DELETE' }); loadRequests(); } catch (e) { msg('rqMsg', e.message, false); }
+  }));
+  updateDot();
+}
+const lastDecided = () => myReqs.filter((r) => r.decided_at && r.status !== 'cancelled').map((r) => r.decided_at).sort().pop() || '';
+function markSeen() { store.set('req_seen', lastDecided()); updateDot(); }
+function updateDot() {
+  const unread = (me?.announcements || []).some((a) => a.id > annSeen()) || lastDecided() > (store.get('req_seen') || '');
+  const b = document.querySelector('#tabbar [data-tab=me]');
+  let d = b.querySelector('.dot');
+  if (unread && !d) { d = document.createElement('i'); d.className = 'dot'; b.appendChild(d); }
+  if (!unread && d) d.remove();
+}
+function openReq(kind) {
+  reqKind = reqKind === kind ? null : kind;
+  $('rqLeave').classList.toggle('on', reqKind === 'leave'); $('rqAdv').classList.toggle('on', reqKind === 'advance');
+  $('rqForm').classList.toggle('hidden', !reqKind);
+  $('rqDates').classList.toggle('hidden', reqKind !== 'leave'); $('rqAmtF').classList.toggle('hidden', reqKind !== 'advance');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ });
+  if (!$('rqFrom').value) $('rqFrom').value = $('rqTo').value = today;
+  document.querySelectorAll('.cur').forEach((e) => (e.textContent = CUR));
+  $('rqMsg').textContent = ''; haptic(6);
+}
+$('rqLeave').onclick = () => openReq('leave');
+$('rqAdv').onclick = () => openReq('advance');
+$('rqFrom').onchange = () => { if ($('rqTo').value < $('rqFrom').value) $('rqTo').value = $('rqFrom').value; };
+$('rqAmt').oninput = () => { const n = $('rqAmt').value.replace(/[^0-9]/g, ''); $('rqAmt').value = n ? Number(n).toLocaleString('en-US') : ''; };
+$('rqSend').onclick = async () => {
+  $('rqSend').disabled = true;
+  try {
+    const body = reqKind === 'leave' ? { kind: 'leave', from: $('rqFrom').value, to: $('rqTo').value, note: $('rqNote').value }
+      : { kind: 'advance', amount: Number($('rqAmt').value.replace(/[^0-9]/g, '')), note: $('rqNote').value };
+    await api('api/me/requests', { method: 'POST', body: JSON.stringify(body) });
+    $('rqNote').value = $('rqAmt').value = ''; msg('rqMsg', 'انرسل طلبك للمدير ✅ راح يوصلك إشعار بالرد.', true);
+    setTimeout(() => { $('rqForm').classList.add('hidden'); reqKind = null; document.querySelectorAll('.req-btns button').forEach((b) => b.classList.remove('on')); }, 2200);
+    haptic(30); loadRequests();
+  } catch (e) { msg('rqMsg', e.message, false); }
+  $('rqSend').disabled = false;
+};
 
 // ----- الموقع -----
 function distM(a, b, c, d) { const R = 6371000, r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); }
@@ -516,6 +640,7 @@ async function loadHome() {
   $('pLeaveBal').textContent = `${s.leave_balance} يوم`;
   drawCalendar();
   checkLocation();
+  renderAnn(); loadRequests().catch(() => {});
 }
 $('printBtn').onclick = () => openPage('payslip.html?me=1&month=' + monthNow);
 $('pwBtn').onclick = async () => {

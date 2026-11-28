@@ -27,7 +27,7 @@ if (fs.existsSync(plist)) {
   let x = fs.readFileSync(plist, 'utf8');
   const keys = {
     NSLocationWhenInUseUsageDescription: 'نحتاج موقعك حتى نتأكد إن البصمة من مكان العمل.',
-    NSCameraUsageDescription: 'نحتاج الكاميرا حتى تصوّر QR كود الشركة.',
+    NSCameraUsageDescription: 'نحتاج الكاميرا حتى تصوّر QR كود الشركة، وسيلفي البصمة إذا شركتك مفعّلتها.',
   };
   for (const [k, v] of Object.entries(keys)) if (!x.includes(`<key>${k}</key>`)) x = x.replace('<dict>', `<dict>\n\t<key>${k}</key>\n\t<string>${v}</string>`);
   if (!x.includes('<key>CFBundleDevelopmentRegion</key>\n\t<string>ar</string>')) x = x.replace(/<key>CFBundleDevelopmentRegion<\/key>\s*<string>[^<]*<\/string>/, '<key>CFBundleDevelopmentRegion</key>\n\t<string>ar</string>');
